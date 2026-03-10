@@ -79,13 +79,40 @@ export class City {
     const ground = createPlane(this.WORLD_SIZE * 2, this.WORLD_SIZE * 2, 0.25, 0.35, 0.2, 200, 200);
     applyHeightmap(ground, getTerrainHeight, (x, z, h, slopeX, slopeZ) => {
       const slope = Math.sqrt(slopeX * slopeX + slopeZ * slopeZ);
-      if (h > 100 && slope < 0.5) return [0.88 + slope * 0.1, 0.89 + slope * 0.1, 0.92];
-      if (h > 30 && slope > 0.6) return [0.35, 0.32, 0.28];
-      if (h > 40) {
-        const t = Math.min(1, (h - 40) / 60);
-        return [0.25 + t * 0.12, 0.35 - t * 0.05, 0.2 - t * 0.08];
-      }
+
+      // Water-adjacent areas
       if (isWater(x, z)) return [0.12, 0.22, 0.15];
+
+      // Snow (high altitude, gentler slopes)
+      if (h > 95 && slope < 0.6) {
+        const snowT = Math.min(1, (h - 95) / 25);
+        return [0.85 + snowT * 0.07, 0.86 + snowT * 0.07, 0.90 + snowT * 0.05];
+      }
+
+      // Rocky faces (steep slopes at any mountain height)
+      if (h > 20 && slope > 0.5) {
+        const rockT = Math.min(1, slope - 0.5);
+        return [0.50 + rockT * 0.05, 0.47 + rockT * 0.04, 0.42 + rockT * 0.03];
+      }
+
+      // Alpine meadow (high altitude, gentle slopes — yellowy-green)
+      if (h > 60) {
+        const t = Math.min(1, (h - 60) / 35);
+        return [0.42 + t * 0.12, 0.44 - t * 0.02, 0.18 + t * 0.06];
+      }
+
+      // Mid-altitude foothills (earthy green transitioning to alpine)
+      if (h > 25) {
+        const t = Math.min(1, (h - 25) / 35);
+        return [0.28 + t * 0.14, 0.38 - t * 0.02, 0.15 + t * 0.03];
+      }
+
+      // Low rolling hills (lush green, slightly varied)
+      if (h > 5) {
+        const t = Math.min(1, (h - 5) / 20);
+        return [0.22 + t * 0.06, 0.36 + t * 0.02, 0.14 + t * 0.01];
+      }
+
       return null;
     });
     this.groundMesh = renderer.createMesh(ground.vertices, ground.indices, 'terrain');

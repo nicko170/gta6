@@ -135,23 +135,35 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   // --- Mountain rock coloring ---
   let rockNoise1 = fbm(worldUV * 0.08, 5);
   let rockNoise2 = fbm(worldUV * 0.4 + vec2<f32>(30.0, 60.0), 3);
-  let rockColor1 = vec3<f32>(0.38, 0.34, 0.28);
-  let rockColor2 = vec3<f32>(0.48, 0.44, 0.38);
-  let rockColor3 = vec3<f32>(0.32, 0.30, 0.26);
+  let rockColor1 = vec3<f32>(0.52, 0.48, 0.42); // warm sandstone
+  let rockColor2 = vec3<f32>(0.58, 0.54, 0.48); // lighter rock
+  let rockColor3 = vec3<f32>(0.44, 0.42, 0.38); // darker crevice
   var rockColor = mix(rockColor1, rockColor2, rockNoise1);
   rockColor = mix(rockColor, rockColor3, rockNoise2 * 0.4);
-  rockColor *= 0.85 + 0.3 * fbm(worldUV * 1.5, 2);
+  rockColor *= 0.88 + 0.24 * fbm(worldUV * 1.5, 2);
+
+  // Dirt/scree at mid-altitude steep areas
+  let dirtNoise = fbm(worldUV * 0.12 + vec2<f32>(100.0, 200.0), 3);
+  let dirtColor = vec3<f32>(0.48, 0.38, 0.26) * (0.9 + 0.2 * dirtNoise);
+  let isDirt = smoothstep(15.0, 35.0, height) * smoothstep(0.15, 0.35, slope) * (1.0 - smoothstep(0.5, 0.7, slope));
 
   // Snow
   let snowSparkle = fbm(worldUV * 3.0, 2);
-  var snowColor = vec3<f32>(0.90, 0.91, 0.95) * (0.92 + 0.16 * snowSparkle);
+  var snowColor = vec3<f32>(0.92, 0.93, 0.97) * (0.92 + 0.16 * snowSparkle);
+  // Patchy snow at medium heights
+  let snowPatch = fbm(worldUV * 0.06 + vec2<f32>(200.0, 100.0), 4);
+  let patchySnow = smoothstep(65.0, 85.0, height) * smoothstep(0.35, 0.15, slope) * smoothstep(0.4, 0.65, snowPatch);
 
   // Mountain grass (higher altitude grass is drier/yellower)
-  let mountainGrass = mix(grassColor, vec3<f32>(0.32, 0.36, 0.12), smoothstep(20.0, 60.0, height) * 0.5);
+  let alpineGrass = vec3<f32>(0.38, 0.42, 0.16);
+  let foothillGrass = vec3<f32>(0.30, 0.40, 0.14);
+  let mountainGrass = mix(foothillGrass, alpineGrass, smoothstep(20.0, 60.0, height));
 
-  // Blend rock/snow/mountain grass by slope and height
+  // Blend rock/snow/dirt/mountain grass by slope and height
   var mountainColor = mix(mountainGrass, rockColor, isRock);
+  mountainColor = mix(mountainColor, dirtColor, isDirt * (1.0 - isRock));
   mountainColor = mix(mountainColor, snowColor, isSnow);
+  mountainColor = mix(mountainColor, snowColor * 0.95, patchySnow * (1.0 - isRock));
 
   // --- Road surface variation ---
   let roadNoise = fbm(worldUV * 0.3, 3);
@@ -204,14 +216,20 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let skyAmbient = vec3<f32>(0.14, 0.20, 0.32);
   let groundAmbient = vec3<f32>(0.12, 0.10, 0.06);
   let ambientBlend = N.y * 0.5 + 0.5;
-  let ambient = mix(groundAmbient, skyAmbient, ambientBlend);
+  var ambient = mix(groundAmbient, skyAmbient, ambientBlend);
+
+  // Boost ambient for mountain terrain (prevents steep slopes going black)
+  let mountainAmbientBoost = isMountain * 0.12;
+  ambient = ambient + vec3<f32>(mountainAmbientBoost * 0.8, mountainAmbientBoost * 0.85, mountainAmbientBoost);
 
   let heightAO = smoothstep(-2.0, 8.0, input.worldPos.y);
-  let normalAO = 0.6 + 0.4 * max(N.y, 0.0);
+  // Softer normal AO for mountains so cliffs aren't pitch black
+  let normalAO = mix(0.6 + 0.4 * max(N.y, 0.0), 0.75 + 0.25 * max(N.y, 0.0), isMountain);
   let ao = heightAO * normalAO;
 
   let fillDir = normalize(vec3<f32>(-L.x, 0.2, -L.z));
-  let fillLight = max(dot(N, fillDir), 0.0) * 0.08;
+  let fillStrength = mix(0.08, 0.15, isMountain); // stronger fill on mountains
+  let fillLight = max(dot(N, fillDir), 0.0) * fillStrength;
   let fillColor = vec3<f32>(0.5, 0.6, 0.8);
 
   let lighting = (ambient * ao + diffuse * 0.82 + fillColor * fillLight);
