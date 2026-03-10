@@ -110,8 +110,18 @@ async function main() {
   loadBar.style.width = '100%';
   setStatus('Ready');
 
+  // Show start button and wait for click
+  const startBtn = document.getElementById('start-btn') as HTMLElement;
+  const progressEl = document.getElementById('loading-progress') as HTMLElement;
+  progressEl.style.display = 'none';
+  startBtn.style.display = 'flex';
+
+  await new Promise<void>(resolve => {
+    startBtn.addEventListener('click', resolve, { once: true });
+    startBtn.addEventListener('touchend', resolve, { once: true });
+  });
+
   // Hide loading screen
-  await new Promise(r => setTimeout(r, 600));
   loadingScreen.style.opacity = '0';
   loadingScreen.style.transition = 'opacity 0.8s ease-out';
   await new Promise(r => setTimeout(r, 800));

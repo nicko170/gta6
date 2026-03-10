@@ -199,6 +199,34 @@
       text-transform: uppercase;
     }
 
+    /* Start button */
+    #start-btn {
+      display: none;
+      align-items: center; justify-content: center;
+      padding: 14px 50px;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      color: #fff;
+      background: rgba(232,146,42,0.2);
+      border: 1px solid rgba(255,238,187,0.35);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, transform 0.15s;
+      -webkit-tap-highlight-color: transparent;
+      animation: start-pulse 2s ease-in-out infinite;
+    }
+    #start-btn:hover {
+      background: rgba(232,146,42,0.4);
+      border-color: rgba(255,238,187,0.6);
+    }
+    #start-btn:active { transform: scale(0.97); }
+    @keyframes start-pulse {
+      0%, 100% { border-color: rgba(255,238,187,0.25); }
+      50% { border-color: rgba(255,238,187,0.55); }
+    }
+
     /* Loading tips at bottom */
     #loading-tip {
       position: absolute;
@@ -510,6 +538,7 @@
         <div id="loading-bar-track"><div id="load-bar"></div></div>
         <div id="loading-status">Initializing</div>
       </div>
+      <div id="start-btn">Play</div>
     </div>
 
     <!-- Loading tip -->
