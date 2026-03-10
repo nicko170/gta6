@@ -49,16 +49,7 @@ async function main() {
     input.setTouchButton(name, pressed);
   };
 
-  // Request fullscreen on first touch (mobile)
-  if (input.isMobile) {
-    const requestFS = () => {
-      const d = document.documentElement as any;
-      if (d.requestFullscreen) d.requestFullscreen().catch(() => {});
-      else if (d.webkitRequestFullscreen) d.webkitRequestFullscreen();
-      document.removeEventListener('touchstart', requestFS);
-    };
-    document.addEventListener('touchstart', requestFS, { once: true });
-  }
+  // Fullscreen is requested when user taps "Play" (needs user gesture)
 
   // Generate city
   const city = new City();
@@ -117,8 +108,19 @@ async function main() {
   startBtn.style.display = 'flex';
 
   await new Promise<void>(resolve => {
-    startBtn.addEventListener('click', resolve, { once: true });
-    startBtn.addEventListener('touchend', resolve, { once: true });
+    const start = () => {
+      // Request fullscreen on mobile (must be in user gesture handler)
+      if (input.isMobile) {
+        const d = document.documentElement as any;
+        if (d.requestFullscreen) d.requestFullscreen().catch(() => {});
+        else if (d.webkitRequestFullscreen) d.webkitRequestFullscreen();
+        // Try to lock landscape orientation
+        try { (screen.orientation as any).lock('landscape').catch(() => {}); } catch {}
+      }
+      resolve();
+    };
+    startBtn.addEventListener('click', start, { once: true });
+    startBtn.addEventListener('touchend', start, { once: true });
   });
 
   // Hide loading screen
@@ -129,6 +131,20 @@ async function main() {
 
   // Handle resize
   window.addEventListener('resize', () => renderer.resize());
+
+  // Re-request fullscreen on mobile if user exits it (tap canvas to re-enter)
+  if (input.isMobile) {
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement) {
+        const canvas = document.getElementById('canvas')!;
+        canvas.addEventListener('touchstart', () => {
+          const d = document.documentElement as any;
+          if (d.requestFullscreen) d.requestFullscreen().catch(() => {});
+          else if (d.webkitRequestFullscreen) d.webkitRequestFullscreen();
+        }, { once: true });
+      }
+    });
+  }
 
   // Game loop
   let lastTime = performance.now();

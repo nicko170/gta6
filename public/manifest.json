@@ -1,0 +1,9 @@
+{
+  "name": "GTA6 - WebGPU",
+  "short_name": "GTA6",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#000000",
+  "theme_color": "#000000"
+}
