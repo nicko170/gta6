@@ -154,6 +154,26 @@ async function main() {
       }
     }
 
+    // Vehicle vs pedestrian collision
+    for (const npc of pedestrians.npcs) {
+      if (npc.hitTimer > 0) continue;
+      for (const v of allVehicles) {
+        const dx = npc.position[0] - v.body.position[0];
+        const dz = npc.position[2] - v.body.position[2];
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        const hitRadius = v.config.isAircraft ? 1.5 : Math.max(v.config.bodyW, v.config.bodyL) * 0.4;
+        if (dist < hitRadius && Math.abs(v.speed) > 2) {
+          const knockDir = dist > 0.1 ? 1 / dist : 1;
+          const impactSpeed = Math.abs(v.speed);
+          npc.velocity[0] = dx * knockDir * impactSpeed * 0.6 + (Math.random() - 0.5) * 3;
+          npc.velocity[1] = 4 + impactSpeed * 0.2;
+          npc.velocity[2] = dz * knockDir * impactSpeed * 0.6 + (Math.random() - 0.5) * 3;
+          npc.hitTimer = 2 + Math.random();
+          break;
+        }
+      }
+    }
+
     // Update AI traffic and pedestrians
     aiTraffic.update(dt, getGroundHeight);
     pedestrians.update(dt);

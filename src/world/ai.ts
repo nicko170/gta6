@@ -345,6 +345,7 @@ export class AITraffic {
 // ---- NPC pedestrian state ----
 interface NPCState {
   position: Vec3;
+  velocity: Vec3;
   rotation: number;
   speed: number;
   targetSpeed: number;
@@ -354,6 +355,7 @@ interface NPCState {
   direction: Direction;
   stopTimer: number;        // > 0 means standing still
   turnCooldown: number;
+  hitTimer: number;         // > 0 means ragdolling from vehicle hit
 }
 
 // ---- Pedestrians class ----
@@ -422,6 +424,7 @@ export class Pedestrians {
 
       this.npcs.push({
         position: [x, 0, z],
+        velocity: [0, 0, 0],
         rotation: directionAngle(dir),
         speed: walkSpeed,
         targetSpeed: walkSpeed,
@@ -431,6 +434,7 @@ export class Pedestrians {
         direction: dir,
         stopTimer: rng() < 0.1 ? 2 + rng() * 5 : 0, // some start stopped
         turnCooldown: rng() * 5,
+        hitTimer: 0,
       });
     }
   }
@@ -442,6 +446,29 @@ export class Pedestrians {
   }
 
   private updateNPC(npc: NPCState, dt: number): void {
+    // Ragdoll from vehicle hit
+    if (npc.hitTimer > 0) {
+      npc.hitTimer -= dt;
+      npc.velocity[1] -= 15 * dt; // gravity
+      npc.position[0] += npc.velocity[0] * dt;
+      npc.position[1] += npc.velocity[1] * dt;
+      npc.position[2] += npc.velocity[2] * dt;
+      npc.rotation += 8 * dt; // spin
+      // Ground bounce
+      if (npc.position[1] < 0.05) {
+        npc.position[1] = 0.05;
+        npc.velocity[1] = Math.abs(npc.velocity[1]) * 0.3;
+        npc.velocity[0] *= 0.7;
+        npc.velocity[2] *= 0.7;
+      }
+      if (npc.hitTimer <= 0) {
+        npc.velocity = [0, 0, 0];
+        npc.speed = 0;
+        npc.stopTimer = 3 + Math.random() * 3; // stunned
+      }
+      return;
+    }
+
     // Decrease cooldowns
     if (npc.turnCooldown > 0) npc.turnCooldown -= dt;
 
