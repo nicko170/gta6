@@ -10,11 +10,20 @@ We got tired of waiting. Seriously. GTA V came out in **2013**. That's not a rel
 
 So instead of refreshing the Rockstar Newswire for the 47th time this week, we built our own. **In a browser. With WebGPU. For free.** You're welcome.
 
+## The World
+
+![Map](map.png)
+
+A full open world with mountains, a winding river, a lake, two airports, and a city with diagonal boulevards — all procedurally generated.
+
 ## Features
 
 - **Driveable cars** — Sports cars, sedans, trucks. They go vroom. No Shark Cards required.
-- **Flyable planes** — Full flight physics with ailerons, rudder, flaps, stall mechanics, and everything. Took us mass 2 weeks, not 12 years.
-- **A whole city** — Procedurally generated with buildings, roads, sidewalks, trees, and an airport. No 200GB download.
+- **Flyable planes** — Full flight physics with ailerons, rudder, flaps, stall mechanics, and everything. Took us maybe 2 weeks, not 12 years.
+- **Boats** — Cruise the lake and river. Try not to beach yourself.
+- **A whole city** — Procedurally generated with variable blocks, diagonal boulevards, buildings, roads, sidewalks, parks, and two airports. No 200GB download.
+- **Mountains & countryside** — Northern mountain ranges with snow peaks, rolling foothills, a lake, and a winding river.
+- **Mountain roads** — Winding roads from the city up to a mountain airport and lake.
 - **Multiplayer** — WebSocket-based online play. No loading into a lobby for 4 minutes just to get griefed by a flying motorcycle.
 - **AI Traffic** — Cars actually drive around on the roads. Following lanes. Stopping at intersections. Revolutionary, apparently.
 - **NPC Pedestrians** — They walk. On sidewalks. Groundbreaking stuff.
@@ -40,6 +49,7 @@ So instead of refreshing the Rockstar Newswire for the 47th time this week, we b
 | Mouse | Look around |
 | Shift | Sprint |
 | F | Enter/exit vehicle |
+| Left Click | Punch NPCs |
 
 ### Driving
 | Key | Action |
@@ -58,6 +68,12 @@ So instead of refreshing the Rockstar Newswire for the 47th time this week, we b
 | Arrow U/D | Flaps |
 | Space | Elevator up (nose up) |
 | Ctrl | Elevator down (nose down) |
+
+### Boating
+| Key | Action |
+|-----|--------|
+| W/S | Throttle |
+| A/D | Steer |
 
 ## Running It
 

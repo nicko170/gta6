@@ -38,16 +38,180 @@
       padding: 8px 20px; border-radius: 6px;
       display: none;
     }
+
+    /* ====== Loading Screen ====== */
     #loading {
       position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: #0a0a0a; display: flex; align-items: center;
-      justify-content: center; flex-direction: column; z-index: 100;
-      color: #fff;
+      z-index: 100; overflow: hidden;
     }
-    #loading h1 { font-size: 72px; letter-spacing: 20px; margin-bottom: 30px; }
-    #loading .subtitle { font-size: 18px; opacity: 0.6; letter-spacing: 8px; }
-    #loading .bar { width: 300px; height: 3px; background: #333; margin-top: 40px; border-radius: 2px; }
-    #loading .bar-fill { height: 100%; background: #fff; border-radius: 2px; transition: width 0.3s; width: 0%; }
+
+    /* Gradient sky background */
+    #loading-bg {
+      position: absolute; inset: 0;
+      background: linear-gradient(
+        to bottom,
+        #0a0c1a 0%,
+        #1a1040 20%,
+        #3a1855 40%,
+        #c44a20 65%,
+        #e8922a 78%,
+        #f5c84a 90%,
+        #ffeebb 100%
+      );
+    }
+
+    /* Sun glow at horizon */
+    #loading-sun {
+      position: absolute;
+      bottom: 18%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 200px;
+      height: 200px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #fff8e0 0%, #f5c84a 30%, rgba(228,146,42,0) 70%);
+      filter: blur(3px);
+    }
+
+    /* Reflection on water below city */
+    #loading-water {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 18%;
+      background: linear-gradient(
+        to bottom,
+        #1a1030 0%,
+        #0f0820 50%,
+        #080412 100%
+      );
+      opacity: 0.9;
+    }
+    #loading-water::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 50%;
+      transform: translateX(-50%);
+      width: 300px; height: 100%;
+      background: linear-gradient(to bottom,
+        rgba(245,200,74,0.25) 0%,
+        rgba(228,146,42,0.1) 40%,
+        transparent 100%
+      );
+      filter: blur(8px);
+    }
+
+    /* City skyline silhouette via inline SVG */
+    #loading-skyline {
+      position: absolute;
+      bottom: 17%;
+      left: 0;
+      width: 100%;
+      height: 40%;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+    }
+    #loading-skyline svg {
+      width: 100%;
+      max-width: 1200px;
+      height: auto;
+      display: block;
+    }
+
+    /* Stars twinkling */
+    .star {
+      position: absolute;
+      width: 2px; height: 2px;
+      background: #fff;
+      border-radius: 50%;
+      animation: star-twinkle 3s ease-in-out infinite alternate;
+    }
+    @keyframes star-twinkle {
+      0% { opacity: 0.2; } 100% { opacity: 1; }
+    }
+
+    /* Title & UI */
+    #loading-content {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+
+    #loading-title {
+      font-size: clamp(60px, 12vw, 130px);
+      font-weight: 900;
+      letter-spacing: 0.15em;
+      color: transparent;
+      background: linear-gradient(to bottom, #fff 0%, #ffeebb 60%, #e8922a 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      text-shadow: none;
+      filter: drop-shadow(0 0 40px rgba(232,146,42,0.4));
+      margin-bottom: 6px;
+      line-height: 1;
+    }
+
+    #loading-subtitle {
+      font-size: clamp(12px, 2vw, 18px);
+      letter-spacing: 0.5em;
+      color: rgba(255,238,187,0.6);
+      text-transform: uppercase;
+      margin-bottom: 50px;
+    }
+
+    /* Progress bar */
+    #loading-progress {
+      width: min(350px, 60vw);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    #loading-bar-track {
+      width: 100%;
+      height: 2px;
+      background: rgba(255,255,255,0.12);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    #load-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(to right, #e8922a, #ffeebb);
+      border-radius: 2px;
+      transition: width 0.4s ease;
+    }
+    #loading-status {
+      font-size: 11px;
+      letter-spacing: 0.3em;
+      color: rgba(255,238,187,0.35);
+      text-transform: uppercase;
+    }
+
+    /* Loading tips at bottom */
+    #loading-tip {
+      position: absolute;
+      bottom: 5%;
+      left: 50%;
+      transform: translateX(-50%);
+      text-align: center;
+      z-index: 11;
+      font-size: 13px;
+      color: rgba(255,238,187,0.3);
+      max-width: 500px;
+      line-height: 1.5;
+      animation: tip-fade 6s ease-in-out infinite;
+    }
+    @keyframes tip-fade {
+      0%, 100% { opacity: 0; } 15%, 85% { opacity: 1; }
+    }
+
     #crosshair {
       position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
       width: 4px; height: 4px; background: rgba(255,255,255,0.5);
@@ -120,10 +284,105 @@
 </head>
 <body>
   <div id="loading">
-    <h1>GTA6</h1>
-    <div class="subtitle">WEBGPU ONLINE</div>
-    <div class="bar"><div class="bar-fill" id="load-bar"></div></div>
+    <div id="loading-bg"></div>
+
+    <!-- Stars -->
+    <div id="loading-stars"></div>
+
+    <!-- Sun glow -->
+    <div id="loading-sun"></div>
+
+    <!-- City skyline silhouette -->
+    <div id="loading-skyline">
+      <svg viewBox="0 0 1200 300" preserveAspectRatio="xMidYMax meet" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <!-- Window lights pattern -->
+          <pattern id="wins" x="0" y="0" width="6" height="8" patternUnits="userSpaceOnUse">
+            <rect x="1" y="1" width="3" height="4" fill="#f5c84a" opacity="0.25"/>
+          </pattern>
+        </defs>
+        <!-- Far buildings (darkest) -->
+        <g fill="#0a0812" opacity="0.9">
+          <rect x="80" y="120" width="40" height="180"/>
+          <rect x="130" y="90" width="35" height="210"/>
+          <rect x="175" y="140" width="50" height="160"/>
+          <rect x="240" y="60" width="45" height="240"/>
+          <rect x="295" y="100" width="30" height="200"/>
+          <rect x="340" y="130" width="55" height="170"/>
+          <!-- Tall downtown cluster -->
+          <rect x="420" y="30" width="50" height="270"/>
+          <rect x="460" y="50" width="40" height="250"/>
+          <rect x="490" y="15" width="55" height="285"/>
+          <rect x="535" y="45" width="45" height="255"/>
+          <rect x="570" y="70" width="35" height="230"/>
+          <rect x="600" y="25" width="48" height="275"/>
+          <rect x="640" y="55" width="42" height="245"/>
+          <rect x="675" y="40" width="50" height="260"/>
+          <rect x="720" y="80" width="35" height="220"/>
+          <!-- Right side -->
+          <rect x="770" y="110" width="45" height="190"/>
+          <rect x="830" y="85" width="38" height="215"/>
+          <rect x="880" y="130" width="50" height="170"/>
+          <rect x="945" y="100" width="35" height="200"/>
+          <rect x="990" y="150" width="45" height="150"/>
+          <rect x="1050" y="120" width="40" height="180"/>
+          <rect x="1100" y="160" width="35" height="140"/>
+        </g>
+        <!-- Window lights on buildings -->
+        <g fill="url(#wins)" opacity="0.5">
+          <rect x="420" y="30" width="50" height="270"/>
+          <rect x="490" y="15" width="55" height="285"/>
+          <rect x="600" y="25" width="48" height="275"/>
+          <rect x="675" y="40" width="50" height="260"/>
+          <rect x="240" y="60" width="45" height="240"/>
+          <rect x="830" y="85" width="38" height="215"/>
+        </g>
+        <!-- Antenna/spire details -->
+        <g fill="#0a0812">
+          <rect x="510" y="0" width="3" height="15"/>
+          <rect x="618" y="10" width="3" height="15"/>
+          <rect x="694" y="25" width="3" height="15"/>
+          <rect x="255" y="45" width="3" height="15"/>
+        </g>
+        <!-- Crane silhouette (because it's always under construction) -->
+        <g stroke="#0a0812" stroke-width="2" fill="none">
+          <line x1="160" y1="140" x2="160" y2="90"/>
+          <line x1="140" y1="92" x2="200" y2="92"/>
+          <line x1="160" y1="92" x2="145" y2="105"/>
+        </g>
+        <!-- Palm trees on the edges -->
+        <g fill="#0a0812">
+          <!-- Left palm -->
+          <rect x="30" y="230" width="4" height="70"/>
+          <ellipse cx="20" cy="225" rx="18" ry="8" transform="rotate(-30,20,225)"/>
+          <ellipse cx="40" cy="222" rx="16" ry="7" transform="rotate(25,40,222)"/>
+          <ellipse cx="30" cy="218" rx="17" ry="7" transform="rotate(-5,30,218)"/>
+          <!-- Right palm -->
+          <rect x="1155" y="240" width="4" height="60"/>
+          <ellipse cx="1147" cy="235" rx="17" ry="7" transform="rotate(-25,1147,235)"/>
+          <ellipse cx="1167" cy="232" rx="15" ry="7" transform="rotate(30,1167,232)"/>
+          <ellipse cx="1157" cy="228" rx="16" ry="7" transform="rotate(5,1157,228)"/>
+        </g>
+      </svg>
+    </div>
+
+    <!-- Water reflection -->
+    <div id="loading-water"></div>
+
+    <!-- Title and progress -->
+    <div id="loading-content">
+      <div id="loading-title">GTA6</div>
+      <div id="loading-subtitle">WebGPU Online</div>
+      <div id="loading-progress">
+        <div id="loading-bar-track"><div id="load-bar"></div></div>
+        <div id="loading-status">Initializing</div>
+      </div>
+    </div>
+
+    <!-- Loading tip -->
+    <div id="loading-tip"></div>
   </div>
+
   <canvas id="canvas"></canvas>
   <div id="hud">
     <div id="info"></div>
@@ -153,6 +412,54 @@
       <div id="flight-controls-hint">W/S THROTTLE<br>A/D AILERONS (ROLL)<br>L/R ARROWS RUDDER<br>U/D ARROWS FLAPS<br>SPACE NOSE UP<br>CTRL NOSE DOWN</div>
     </div>
   </div>
+
+  <script>
+    // Generate stars
+    (function() {
+      const container = document.getElementById('loading-stars');
+      for (let i = 0; i < 60; i++) {
+        const star = document.createElement('div');
+        star.className = 'star';
+        star.style.left = Math.random() * 100 + '%';
+        star.style.top = Math.random() * 35 + '%';
+        star.style.animationDelay = (Math.random() * 3) + 's';
+        star.style.animationDuration = (2 + Math.random() * 3) + 's';
+        const size = 1 + Math.random() * 2;
+        star.style.width = size + 'px';
+        star.style.height = size + 'px';
+        container.appendChild(star);
+      }
+    })();
+
+    // Cycle loading tips
+    (function() {
+      const tips = [
+        'WASD to move — Mouse to look — Shift to sprint',
+        'Press F near a vehicle to hop in',
+        'Boats can only travel on water — stay in the lake or river',
+        'Fly north to find the mountain airport',
+        'The diagonal boulevards cut through the city grid',
+        'Left-click to punch nearby pedestrians. Sorry, not sorry.',
+        'Cars have a handbrake on Space. Drift responsibly.',
+        'Built with zero dependencies. Just TypeScript and WebGPU.',
+        'No Shark Cards were harmed in the making of this game.',
+        'Try landing a plane on the mountain runway. We dare you.',
+      ];
+      const el = document.getElementById('loading-tip');
+      let idx = Math.floor(Math.random() * tips.length);
+      el.textContent = tips[idx];
+      setInterval(() => {
+        idx = (idx + 1) % tips.length;
+        el.textContent = tips[idx];
+      }, 6000);
+    })();
+
+    // Loading status text updates
+    window._setLoadingStatus = function(text) {
+      const el = document.getElementById('loading-status');
+      if (el) el.textContent = text;
+    };
+  </script>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

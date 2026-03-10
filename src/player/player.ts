@@ -4,6 +4,7 @@ import { Renderer, Mesh, RenderObject } from '../engine/renderer';
 import { Input } from '../engine/input';
 import { Vehicle } from '../vehicles/vehicle';
 import { createBox, createTaperedBox, createCylinder, createSphere, mergeMeshes } from '../engine/meshgen';
+import { getTerrainHeight, isWater } from '../world/terrain';
 
 export class Player {
   body: PhysicsBody;
@@ -141,7 +142,7 @@ export class Player {
     this.inVehicle.update(dt, input, getGroundHeight);
 
     // Vehicle building collision
-    if (checkBuilding && !this.inVehicle.config.isAircraft) {
+    if (checkBuilding && !this.inVehicle.config.isAircraft && !this.inVehicle.config.isWatercraft) {
       const push = checkBuilding(this.inVehicle.body.position[0], this.inVehicle.body.position[2], this.inVehicle.body.radius);
       if (push) {
         this.inVehicle.body.position[0] += push[0];
@@ -162,12 +163,13 @@ export class Player {
 
   private findNearestVehicle(vehicles: Vehicle[]): Vehicle | null {
     let nearest: Vehicle | null = null;
-    let nearestDist = 5; // Max interaction distance
+    let nearestDist = 5;
 
     for (const v of vehicles) {
       if (v.occupied) continue;
+      const maxDist = v.config.isWatercraft ? 8 : 5;
       const dist = vec3.distance(this.body.position, v.body.position);
-      if (dist < nearestDist) {
+      if (dist < maxDist && dist < nearestDist) {
         nearestDist = dist;
         nearest = v;
       }
@@ -178,8 +180,16 @@ export class Player {
   enterVehicle(vehicle: Vehicle) {
     this.inVehicle = vehicle;
     vehicle.occupied = true;
-    this.cameraDistance = vehicle.config.isAircraft ? 20 : 10;
-    this.cameraHeight = vehicle.config.isAircraft ? 8 : 5;
+    if (vehicle.config.isAircraft) {
+      this.cameraDistance = 20;
+      this.cameraHeight = 8;
+    } else if (vehicle.config.isWatercraft) {
+      this.cameraDistance = 12;
+      this.cameraHeight = 5;
+    } else {
+      this.cameraDistance = 10;
+      this.cameraHeight = 5;
+    }
   }
 
   exitVehicle() {
@@ -188,12 +198,33 @@ export class Player {
     this.inVehicle.speed = 0;
     this.inVehicle.throttle = 0;
     this.inVehicle.flaps = 0;
-    const exitOffset: Vec3 = [
-      this.inVehicle.body.position[0] + Math.cos(this.inVehicle.body.rotation) * 3,
-      this.inVehicle.body.position[1],
-      this.inVehicle.body.position[2] - Math.sin(this.inVehicle.body.rotation) * 3,
-    ];
-    this.body.position = exitOffset;
+
+    if (this.inVehicle.config.isWatercraft) {
+      // Find nearest shore position
+      const vx = this.inVehicle.body.position[0];
+      const vz = this.inVehicle.body.position[2];
+      const offsets = [[4,0],[-4,0],[0,4],[0,-4],[6,0],[-6,0],[0,6],[0,-6],[4,4],[-4,-4]];
+      let placed = false;
+      for (const [dx, dz] of offsets) {
+        const tx = vx + dx, tz = vz + dz;
+        if (!isWater(tx, tz)) {
+          this.body.position = [tx, getTerrainHeight(tx, tz), tz];
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        this.body.position = [vx, getTerrainHeight(vx, vz) + 1, vz];
+      }
+    } else {
+      const exitOffset: Vec3 = [
+        this.inVehicle.body.position[0] + Math.cos(this.inVehicle.body.rotation) * 3,
+        this.inVehicle.body.position[1],
+        this.inVehicle.body.position[2] - Math.sin(this.inVehicle.body.rotation) * 3,
+      ];
+      this.body.position = exitOffset;
+    }
+
     this.inVehicle = null;
     this.cameraDistance = 8;
     this.cameraHeight = 4;

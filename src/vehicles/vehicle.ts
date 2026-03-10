@@ -5,7 +5,9 @@ import { createBox, createTaperedBox, createCylinder, createCylinderX, createSph
 import { mat4 } from '../engine/math';
 import { Input } from '../engine/input';
 
-export type VehicleType = 'sedan' | 'sports' | 'truck' | 'plane';
+import { WATER_LEVEL, isWater as checkIsWater } from '../world/terrain';
+
+export type VehicleType = 'sedan' | 'sports' | 'truck' | 'plane' | 'boat';
 
 interface VehicleConfig {
   maxSpeed: number;
@@ -18,13 +20,15 @@ interface VehicleConfig {
   color: [number, number, number];
   mass: number;
   isAircraft: boolean;
+  isWatercraft: boolean;
 }
 
 const CONFIGS: Record<VehicleType, VehicleConfig> = {
-  sedan: { maxSpeed: 35, acceleration: 25, braking: 40, turnSpeed: 2.5, bodyW: 2.2, bodyH: 1.4, bodyL: 4.5, color: [0.8, 0.2, 0.2], mass: 1500, isAircraft: false },
-  sports: { maxSpeed: 90, acceleration: 65, braking: 70, turnSpeed: 3.0, bodyW: 2.0, bodyH: 1.1, bodyL: 4.2, color: [0.9, 0.6, 0.0], mass: 1200, isAircraft: false },
-  truck: { maxSpeed: 25, acceleration: 15, braking: 30, turnSpeed: 1.8, bodyW: 2.8, bodyH: 2.5, bodyL: 6.0, color: [0.3, 0.4, 0.6], mass: 3000, isAircraft: false },
-  plane: { maxSpeed: 80, acceleration: 20, braking: 15, turnSpeed: 1.5, bodyW: 2.0, bodyH: 2.5, bodyL: 10.0, color: [0.92, 0.92, 0.96], mass: 5000, isAircraft: true },
+  sedan: { maxSpeed: 35, acceleration: 25, braking: 40, turnSpeed: 2.5, bodyW: 2.2, bodyH: 1.4, bodyL: 4.5, color: [0.8, 0.2, 0.2], mass: 1500, isAircraft: false, isWatercraft: false },
+  sports: { maxSpeed: 90, acceleration: 65, braking: 70, turnSpeed: 3.0, bodyW: 2.0, bodyH: 1.1, bodyL: 4.2, color: [0.9, 0.6, 0.0], mass: 1200, isAircraft: false, isWatercraft: false },
+  truck: { maxSpeed: 25, acceleration: 15, braking: 30, turnSpeed: 1.8, bodyW: 2.8, bodyH: 2.5, bodyL: 6.0, color: [0.3, 0.4, 0.6], mass: 3000, isAircraft: false, isWatercraft: false },
+  plane: { maxSpeed: 80, acceleration: 20, braking: 15, turnSpeed: 1.5, bodyW: 2.0, bodyH: 2.5, bodyL: 10.0, color: [0.92, 0.92, 0.96], mass: 5000, isAircraft: true, isWatercraft: false },
+  boat: { maxSpeed: 30, acceleration: 18, braking: 25, turnSpeed: 2.0, bodyW: 2.5, bodyH: 1.0, bodyL: 5.0, color: [0.9, 0.9, 0.95], mass: 2000, isAircraft: false, isWatercraft: true },
 };
 
 export class Vehicle {
@@ -153,6 +157,33 @@ export class Vehicle {
         { data: createBox(c.bodyW*0.7, 0.04, c.bodyL*0.22, 0.3, 0.3, 0.32), offsetY: c.bodyH*0.76 , offsetZ: c.bodyL*0.1 },
       );
       this.mesh = renderer.createMesh(merged.vertices, merged.indices, 'object');
+    } else if (this.type === 'boat') {
+      const merged = mergeMeshes(
+        // Hull - tapered V-shape bottom
+        { data: createTaperedBox(c.bodyW, c.bodyW * 0.5, c.bodyH * 0.5, c.bodyL, c.bodyL * 0.6, r, g, b) },
+        // Deck
+        { data: createBox(c.bodyW * 0.9, 0.08, c.bodyL * 0.8, r * 0.95, g * 0.95, b * 0.92), offsetY: c.bodyH * 0.25 },
+        // Bow taper
+        { data: createTaperedBox(c.bodyW * 0.5, 0.1, c.bodyH * 0.35, c.bodyL * 0.2, 0.05, r, g, b), offsetZ: c.bodyL * 0.52, offsetY: -c.bodyH * 0.05 },
+        // Windshield
+        { data: createTaperedBox(c.bodyW * 0.65, c.bodyW * 0.5, c.bodyH * 0.4, 0.06, 0.06, 0.2, 0.4, 0.7), offsetY: c.bodyH * 0.5, offsetZ: c.bodyL * 0.15 },
+        // Console
+        { data: createBox(c.bodyW * 0.35, c.bodyH * 0.3, 0.4, 0.3, 0.3, 0.35), offsetY: c.bodyH * 0.4, offsetZ: c.bodyL * 0.1 },
+        // Outboard motor
+        { data: createBox(0.4, 0.6, 0.5, 0.25, 0.25, 0.28), offsetZ: -c.bodyL * 0.48, offsetY: -c.bodyH * 0.05 },
+        // Motor leg
+        { data: createBox(0.12, 0.4, 0.12, 0.2, 0.2, 0.22), offsetZ: -c.bodyL * 0.48, offsetY: -c.bodyH * 0.45 },
+        // Left railing
+        { data: createBox(0.05, 0.25, c.bodyL * 0.5, 0.5, 0.5, 0.52), offsetX: -c.bodyW * 0.44, offsetY: c.bodyH * 0.4 },
+        // Right railing
+        { data: createBox(0.05, 0.25, c.bodyL * 0.5, 0.5, 0.5, 0.52), offsetX: c.bodyW * 0.44, offsetY: c.bodyH * 0.4 },
+        // Seats
+        { data: createBox(c.bodyW * 0.35, 0.25, 0.3, 0.7, 0.7, 0.72), offsetY: c.bodyH * 0.35, offsetZ: -c.bodyL * 0.05 },
+        { data: createBox(c.bodyW * 0.35, 0.25, 0.3, 0.7, 0.7, 0.72), offsetY: c.bodyH * 0.35, offsetZ: -c.bodyL * 0.2 },
+        // Stern transom
+        { data: createBox(c.bodyW * 0.9, c.bodyH * 0.35, 0.08, r * 0.9, g * 0.9, b * 0.88), offsetZ: -c.bodyL * 0.42, offsetY: c.bodyH * 0.15 },
+      );
+      this.mesh = renderer.createMesh(merged.vertices, merged.indices, 'object');
     } else {
       // Sedan - default
       const merged = mergeMeshes(
@@ -218,12 +249,19 @@ export class Vehicle {
     if (this.occupied && input) {
       if (this.config.isAircraft) {
         this.updateAircraft(dt, input, getGroundHeight);
+      } else if (this.config.isWatercraft) {
+        this.updateBoat(dt, input);
       } else {
         this.updateCar(dt, input, getGroundHeight);
       }
     } else {
-      // Parked vehicle physics
-      updatePhysics(this.body, dt, getGroundHeight);
+      if (this.config.isWatercraft) {
+        // Boats just bob on water
+        const bob = Math.sin(performance.now() * 0.0015 + this.body.position[0]) * 0.1;
+        this.body.position[1] = WATER_LEVEL + bob;
+      } else {
+        updatePhysics(this.body, dt, getGroundHeight);
+      }
       this.speed *= 0.98;
     }
   }
@@ -404,6 +442,49 @@ export class Vehicle {
     this.body.position[1] = Math.max(groundY, Math.min(500, this.body.position[1]));
   }
 
+  private updateBoat(dt: number, input: Input) {
+    let accel = 0;
+    if (input.isDown('KeyW')) accel = this.config.acceleration;
+    if (input.isDown('KeyS')) accel = -this.config.braking * 0.5;
+
+    this.speed += accel * dt;
+    this.speed *= 0.97; // Water drag
+    this.speed = Math.max(-this.config.maxSpeed * 0.2, Math.min(this.config.maxSpeed, this.speed));
+
+    // Steering
+    if (Math.abs(this.speed) > 0.5) {
+      const turnFactor = Math.min(1, Math.abs(this.speed) / 8);
+      if (input.isDown('KeyA')) this.body.rotation += this.config.turnSpeed * turnFactor * dt * Math.sign(this.speed);
+      if (input.isDown('KeyD')) this.body.rotation -= this.config.turnSpeed * turnFactor * dt * Math.sign(this.speed);
+    }
+
+    // Movement
+    const forward: Vec3 = [Math.sin(this.body.rotation), 0, Math.cos(this.body.rotation)];
+    const newX = this.body.position[0] + forward[0] * this.speed * dt;
+    const newZ = this.body.position[2] + forward[2] * this.speed * dt;
+
+    // Prevent going on land
+    if (checkIsWater(newX, newZ)) {
+      this.body.position[0] = newX;
+      this.body.position[2] = newZ;
+      this.body.velocity[0] = forward[0] * this.speed;
+      this.body.velocity[2] = forward[2] * this.speed;
+    } else {
+      this.speed *= 0.3;
+      this.body.velocity[0] = 0;
+      this.body.velocity[2] = 0;
+    }
+
+    // Bobbing on water
+    const bob = Math.sin(performance.now() * 0.002 + this.body.position[0] * 0.1) * 0.15;
+    this.body.position[1] = WATER_LEVEL + bob;
+
+    // World bounds
+    const WORLD_HALF = 900;
+    this.body.position[0] = Math.max(-WORLD_HALF, Math.min(WORLD_HALF, this.body.position[0]));
+    this.body.position[2] = Math.max(-WORLD_HALF, Math.min(WORLD_HALF, this.body.position[2]));
+  }
+
   getRenderObject(): RenderObject {
     let model: Float32Array;
 
@@ -412,6 +493,15 @@ export class Vehicle {
       const ry = mat4.rotationY(this.body.rotation);
       const rx = mat4.rotationX(-this.pitch);
       const rz = mat4.rotationZ(this.roll);
+      model = mat4.multiply(t, mat4.multiply(ry, mat4.multiply(rx, rz)));
+    } else if (this.config.isWatercraft) {
+      const t = mat4.translation(this.body.position[0], this.body.position[1] + this.config.bodyH / 2, this.body.position[2]);
+      const ry = mat4.rotationY(this.body.rotation);
+      const now = performance.now();
+      const rollAngle = Math.sin(now * 0.0015 + this.body.position[2] * 0.1) * 0.06;
+      const pitchAngle = Math.sin(now * 0.001 + this.body.position[0] * 0.1) * 0.04;
+      const rx = mat4.rotationX(pitchAngle);
+      const rz = mat4.rotationZ(rollAngle);
       model = mat4.multiply(t, mat4.multiply(ry, mat4.multiply(rx, rz)));
     } else {
       const t = mat4.translation(this.body.position[0], this.body.position[1] + this.config.bodyH / 2, this.body.position[2]);

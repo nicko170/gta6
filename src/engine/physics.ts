@@ -50,6 +50,20 @@ export function updatePhysics(body: PhysicsBody, dt: number, getGroundHeight?: (
     body.velocity[0] *= body.friction;
     body.velocity[2] *= body.friction;
     body.angularVelocity *= body.friction;
+
+    // Slope physics: apply downhill force
+    if (getGroundHeight) {
+      const eps = 0.5;
+      const hpx = getGroundHeight(body.position[0] + eps, body.position[2]);
+      const hmx = getGroundHeight(body.position[0] - eps, body.position[2]);
+      const hpz = getGroundHeight(body.position[0], body.position[2] + eps);
+      const hmz = getGroundHeight(body.position[0], body.position[2] - eps);
+      const slopeX = (hpx - hmx) / (2 * eps);
+      const slopeZ = (hpz - hmz) / (2 * eps);
+      const slopeForce = 8;
+      body.velocity[0] -= slopeX * slopeForce * dt;
+      body.velocity[2] -= slopeZ * slopeForce * dt;
+    }
   } else {
     body.grounded = false;
   }

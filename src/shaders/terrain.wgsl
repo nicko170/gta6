@@ -101,12 +101,21 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let V = normalize(uniforms.cameraPos - input.worldPos);
 
   // --- Determine surface type from vertex color ---
-  // Roads tend to be grey (r ~ g ~ b), grass is greenish (g > r, g > b)
   let baseColor = input.color.rgb;
   let luminance = dot(baseColor, vec3<f32>(0.299, 0.587, 0.114));
   let saturation = (max(max(baseColor.r, baseColor.g), baseColor.b) - min(min(baseColor.r, baseColor.g), baseColor.b));
   let isGrassy = smoothstep(0.03, 0.12, saturation) * smoothstep(0.0, 0.1, baseColor.g - baseColor.r);
   let isRoad = (1.0 - isGrassy) * smoothstep(0.15, 0.45, luminance) * (1.0 - smoothstep(0.0, 0.15, saturation));
+
+  // Height and slope-based surface detection
+  let height = input.worldPos.y;
+  let slope = 1.0 - max(N.y, 0.0);
+  let isMountain = smoothstep(20.0, 50.0, height);
+  let isRock = smoothstep(0.25, 0.55, slope);
+  let isSnow = smoothstep(80.0, 115.0, height) * smoothstep(0.5, 0.2, slope);
+
+  // Water detection from vertex color (blue-dominant)
+  let isWaterSurface = smoothstep(0.0, 0.08, baseColor.b - max(baseColor.r, baseColor.g)) * smoothstep(0.4, 0.6, baseColor.b);
 
   // --- World-space procedural coordinates ---
   let worldUV = input.worldPos.xz;
@@ -116,80 +125,106 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let grassNoise2 = fbm(worldUV * 0.15 + vec2<f32>(50.0, 80.0), 3);
   let grassDetail = fbm(worldUV * 0.8, 3);
 
-  // Warm / cool grass patches
   let grassWarm = vec3<f32>(0.28, 0.42, 0.08);
   let grassCool = vec3<f32>(0.15, 0.35, 0.12);
   let grassDry  = vec3<f32>(0.38, 0.38, 0.12);
   var grassColor = mix(grassCool, grassWarm, grassNoise1);
   grassColor = mix(grassColor, grassDry, grassNoise2 * 0.35);
-  // Fine detail variation
   grassColor *= 0.85 + 0.3 * grassDetail;
+
+  // --- Mountain rock coloring ---
+  let rockNoise1 = fbm(worldUV * 0.08, 5);
+  let rockNoise2 = fbm(worldUV * 0.4 + vec2<f32>(30.0, 60.0), 3);
+  let rockColor1 = vec3<f32>(0.38, 0.34, 0.28);
+  let rockColor2 = vec3<f32>(0.48, 0.44, 0.38);
+  let rockColor3 = vec3<f32>(0.32, 0.30, 0.26);
+  var rockColor = mix(rockColor1, rockColor2, rockNoise1);
+  rockColor = mix(rockColor, rockColor3, rockNoise2 * 0.4);
+  rockColor *= 0.85 + 0.3 * fbm(worldUV * 1.5, 2);
+
+  // Snow
+  let snowSparkle = fbm(worldUV * 3.0, 2);
+  var snowColor = vec3<f32>(0.90, 0.91, 0.95) * (0.92 + 0.16 * snowSparkle);
+
+  // Mountain grass (higher altitude grass is drier/yellower)
+  let mountainGrass = mix(grassColor, vec3<f32>(0.32, 0.36, 0.12), smoothstep(20.0, 60.0, height) * 0.5);
+
+  // Blend rock/snow/mountain grass by slope and height
+  var mountainColor = mix(mountainGrass, rockColor, isRock);
+  mountainColor = mix(mountainColor, snowColor, isSnow);
 
   // --- Road surface variation ---
   let roadNoise = fbm(worldUV * 0.3, 3);
   let roadDetail = fbm(worldUV * 2.0, 2);
   let roadPatches = voronoiNoise(worldUV * 0.08);
   var roadColor = baseColor;
-  // Subtle asphalt variation -- lighter/darker patches
   roadColor *= 0.88 + 0.24 * roadNoise;
-  // Fine roughness grain
   roadColor *= 0.94 + 0.12 * roadDetail;
-  // Repair patches (slightly different shade)
   let patchFactor = smoothstep(0.3, 0.35, roadPatches) * smoothstep(0.55, 0.5, roadPatches);
   roadColor = mix(roadColor, roadColor * 1.12, patchFactor * 0.5);
 
-  // --- Road markings ---
+  // Road markings
   let roadLine = smoothstep(0.48, 0.49, input.uv.x) - smoothstep(0.51, 0.52, input.uv.x);
   roadColor = mix(roadColor, vec3<f32>(0.9, 0.88, 0.7), roadLine * 0.8);
 
+  // --- Water coloring ---
+  let waterShallow = vec3<f32>(0.08, 0.32, 0.42);
+  let waterDeep = vec3<f32>(0.02, 0.08, 0.22);
+  var waterColor = mix(waterShallow, waterDeep, smoothstep(0.0, 3.0, max(0.0, -height)));
+  // Animated ripples
+  let ripple1 = sin(worldUV.x * 1.8 + uniforms.time * 1.5) * sin(worldUV.y * 2.2 + uniforms.time * 1.1) * 0.04;
+  let ripple2 = sin(worldUV.x * 4.0 - uniforms.time * 0.8) * sin(worldUV.y * 3.5 + uniforms.time * 1.3) * 0.02;
+  waterColor += vec3<f32>(ripple1 + ripple2);
+  // Fresnel-based sky reflection
+  let fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+  let skyReflect = vec3<f32>(0.35, 0.5, 0.65);
+  waterColor = mix(waterColor, skyReflect, fresnel * 0.6);
+
   // --- Blend surface types ---
   var surfaceColor = baseColor;
-  // Apply grass variation where grassy
-  surfaceColor = mix(surfaceColor, grassColor, isGrassy);
-  // Apply road variation where road-like
-  surfaceColor = mix(surfaceColor, roadColor, isRoad);
+  surfaceColor = mix(surfaceColor, grassColor, isGrassy * (1.0 - isMountain) * (1.0 - isWaterSurface));
+  surfaceColor = mix(surfaceColor, roadColor, isRoad * (1.0 - isWaterSurface));
+  surfaceColor = mix(surfaceColor, mountainColor, isMountain * (1.0 - isRoad) * (1.0 - isWaterSurface));
+  surfaceColor = mix(surfaceColor, waterColor, isWaterSurface);
 
-  // For generic surfaces (not grass, not road), add subtle noise
+  // For generic surfaces (not grass, not road, not mountain, not water), add subtle noise
   let genericNoise = fbm(worldUV * 0.2, 3);
-  let genericMask = (1.0 - isGrassy) * (1.0 - isRoad);
+  let genericMask = (1.0 - isGrassy) * (1.0 - isRoad) * (1.0 - isMountain) * (1.0 - isWaterSurface);
   surfaceColor = mix(surfaceColor, surfaceColor * (0.85 + 0.3 * genericNoise), genericMask);
 
   // --- Lighting ---
   let NdotL = max(dot(N, L), 0.0);
 
-  // Wrapped diffuse for softer shadows
   let wrapFactor = 0.3;
   let wrappedNdotL = max((dot(N, L) + wrapFactor) / (1.0 + wrapFactor), 0.0);
 
-  // Sun color with warm tint
   let sunColor = vec3<f32>(1.05, 0.95, 0.82);
   let diffuse = sunColor * wrappedNdotL;
 
-  // Hemispherical ambient -- sky from above, warm ground bounce from below
   let skyAmbient = vec3<f32>(0.14, 0.20, 0.32);
   let groundAmbient = vec3<f32>(0.12, 0.10, 0.06);
   let ambientBlend = N.y * 0.5 + 0.5;
   let ambient = mix(groundAmbient, skyAmbient, ambientBlend);
 
-  // Subtle ground-level AO: darken where the surface normal points down or surface is low
   let heightAO = smoothstep(-2.0, 8.0, input.worldPos.y);
   let normalAO = 0.6 + 0.4 * max(N.y, 0.0);
   let ao = heightAO * normalAO;
 
-  // Shadow softening -- slight fill light from opposite direction
   let fillDir = normalize(vec3<f32>(-L.x, 0.2, -L.z));
   let fillLight = max(dot(N, fillDir), 0.0) * 0.08;
   let fillColor = vec3<f32>(0.5, 0.6, 0.8);
 
   let lighting = (ambient * ao + diffuse * 0.82 + fillColor * fillLight);
 
-  // Subtle specular for wet/road surfaces
+  // Specular
   let H = normalize(L + V);
   let NdotH = max(dot(N, H), 0.0);
   let roadSpec = pow(NdotH, 64.0) * 0.15 * isRoad;
   let grassSpec = pow(NdotH, 8.0) * 0.04 * isGrassy;
+  let snowSpec = pow(NdotH, 32.0) * 0.2 * isSnow;
+  let waterSpec = pow(NdotH, 128.0) * 0.6 * isWaterSurface;
 
-  var finalColor = surfaceColor * lighting + sunColor * (roadSpec + grassSpec);
+  var finalColor = surfaceColor * lighting + sunColor * (roadSpec + grassSpec + snowSpec + waterSpec);
 
   // --- Fog with atmospheric perspective ---
   let dist = distance(input.worldPos, uniforms.cameraPos);

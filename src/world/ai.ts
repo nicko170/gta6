@@ -2,26 +2,24 @@ import { Renderer, Mesh, RenderObject } from '../engine/renderer';
 import { Vehicle, VehicleType } from '../vehicles/vehicle';
 import { Vec3, mat4 } from '../engine/math';
 import { createBox, mergeMeshes } from '../engine/meshgen';
+import { CITY_X, CITY_Z, CITY_ROAD_X, CITY_ROAD_Z } from './terrain';
 
 // ---- Road grid constants ----
-const GRID_SIZE = 6;
-const BLOCK_SIZE = 80;
 const ROAD_WIDTH = 14;
 const HALF_ROAD = ROAD_WIDTH / 2;
-const START = -(GRID_SIZE * BLOCK_SIZE) / 2; // -240
 const LANE_OFFSET = 3; // offset from road center for lane driving
 const SIDEWALK_WIDTH = 2;
 const SIDEWALK_OFFSET = HALF_ROAD + SIDEWALK_WIDTH / 2; // 8 units from road center
 
-// Road center positions: -240, -160, -80, 0, 80, 160, 240
-const ROAD_POSITIONS: number[] = [];
-for (let i = 0; i <= GRID_SIZE; i++) {
-  ROAD_POSITIONS.push(START + i * BLOCK_SIZE);
-}
+// Use precomputed variable-width road positions from terrain.ts
+const ROAD_POSITIONS_X = CITY_ROAD_X;
+const ROAD_POSITIONS_Z = CITY_ROAD_Z;
 
 // Road extent: cars should stay within the grid road area
-const ROAD_MIN = START - HALF_ROAD;
-const ROAD_MAX = START + GRID_SIZE * BLOCK_SIZE + HALF_ROAD;
+const ROAD_MIN_X = CITY_ROAD_X[0] - HALF_ROAD;
+const ROAD_MAX_X = CITY_ROAD_X[CITY_ROAD_X.length - 1] + HALF_ROAD;
+const ROAD_MIN_Z = CITY_ROAD_Z[0] - HALF_ROAD;
+const ROAD_MAX_Z = CITY_ROAD_Z[CITY_ROAD_Z.length - 1] + HALF_ROAD;
 
 // ---- Seeded random ----
 function seededRandom(seed: number) {
@@ -37,8 +35,6 @@ function seededRandom(seed: number) {
 type Direction = 0 | 1 | 2 | 3;
 
 function directionAngle(dir: Direction): number {
-  // Returns rotation angle (Y-axis) so the vehicle faces the direction of travel
-  // Vehicle model faces +Z by default
   switch (dir) {
     case 0: return -Math.PI / 2;  // +X
     case 1: return 0;              // +Z
@@ -62,7 +58,6 @@ function oppositeDir(dir: Direction): Direction {
 
 // Lane offset perpendicular to travel direction (drive on the right side)
 function laneOffset(dir: Direction): [number, number] {
-  // Right-hand traffic: offset to the right of the travel direction
   switch (dir) {
     case 0: return [0, -LANE_OFFSET];  // traveling +X, lane offset -Z
     case 1: return [LANE_OFFSET, 0];   // traveling +Z, lane offset +X
@@ -74,7 +69,7 @@ function laneOffset(dir: Direction): [number, number] {
 // ---- AI Car state ----
 interface AICarState {
   vehicle: Vehicle;
-  roadIndex: number;       // index into ROAD_POSITIONS for the road we're on
+  roadIndex: number;       // index into ROAD_POSITIONS_X or _Z for the road we're on
   horizontal: boolean;     // true = traveling along X axis (road is at fixed Z)
   direction: Direction;
   speed: number;
@@ -102,8 +97,7 @@ export class AITraffic {
 
     for (let i = 0; i < count; i++) {
       const horizontal = rng() > 0.5;
-      const roadIndex = Math.floor(rng() * ROAD_POSITIONS.length);
-      const roadPos = ROAD_POSITIONS[roadIndex];
+      const roadIndex = Math.floor(rng() * ROAD_POSITIONS_X.length);
 
       // Pick a direction
       let dir: Direction;
@@ -114,17 +108,19 @@ export class AITraffic {
       }
 
       // Place car along the road at a random position
-      const t = rng();
-      const along = ROAD_MIN + t * (ROAD_MAX - ROAD_MIN);
       const [lx, lz] = laneOffset(dir);
 
       let x: number, z: number;
       if (horizontal) {
-        x = along;
+        const roadPos = ROAD_POSITIONS_Z[roadIndex];
+        const t = rng();
+        x = ROAD_MIN_X + t * (ROAD_MAX_X - ROAD_MIN_X);
         z = roadPos + lz;
       } else {
+        const roadPos = ROAD_POSITIONS_X[roadIndex];
+        const t = rng();
         x = roadPos + lx;
-        z = along;
+        z = ROAD_MIN_Z + t * (ROAD_MAX_Z - ROAD_MIN_Z);
       }
 
       const type = types[Math.floor(rng() * types.length)];
@@ -197,15 +193,14 @@ export class AITraffic {
 
     // Lane correction: drift back toward the correct lane position
     const [lx, lz] = laneOffset(car.direction);
-    const roadCenter = ROAD_POSITIONS[car.roadIndex];
 
     if (car.horizontal) {
-      // Road is at fixed Z = roadCenter, car should be at Z = roadCenter + lz
+      const roadCenter = ROAD_POSITIONS_Z[car.roadIndex];
       const targetZ = roadCenter + lz;
       const zErr = targetZ - pos[2];
       pos[2] += zErr * Math.min(1, 3 * dt);
     } else {
-      // Road is at fixed X = roadCenter, car should be at X = roadCenter + lx
+      const roadCenter = ROAD_POSITIONS_X[car.roadIndex];
       const targetX = roadCenter + lx;
       const xErr = targetX - pos[0];
       pos[0] += xErr * Math.min(1, 3 * dt);
@@ -219,16 +214,16 @@ export class AITraffic {
     // Wrap around: if car goes beyond the road grid, teleport to the other end
     const margin = 20;
     if (car.horizontal) {
-      if (car.direction === 0 && pos[0] > ROAD_MAX + margin) {
-        pos[0] = ROAD_MIN - margin;
-      } else if (car.direction === 2 && pos[0] < ROAD_MIN - margin) {
-        pos[0] = ROAD_MAX + margin;
+      if (car.direction === 0 && pos[0] > ROAD_MAX_X + margin) {
+        pos[0] = ROAD_MIN_X - margin;
+      } else if (car.direction === 2 && pos[0] < ROAD_MIN_X - margin) {
+        pos[0] = ROAD_MAX_X + margin;
       }
     } else {
-      if (car.direction === 1 && pos[2] > ROAD_MAX + margin) {
-        pos[2] = ROAD_MIN - margin;
-      } else if (car.direction === 3 && pos[2] < ROAD_MIN - margin) {
-        pos[2] = ROAD_MAX + margin;
+      if (car.direction === 1 && pos[2] > ROAD_MAX_Z + margin) {
+        pos[2] = ROAD_MIN_Z - margin;
+      } else if (car.direction === 3 && pos[2] < ROAD_MIN_Z - margin) {
+        pos[2] = ROAD_MAX_Z + margin;
       }
     }
 
@@ -255,65 +250,54 @@ export class AITraffic {
   private checkIntersection(car: AICarState): void {
     const pos = car.vehicle.body.position;
 
-    // Find nearest cross-road intersection
-    for (const crossPos of ROAD_POSITIONS) {
+    // Cross-road positions depending on orientation
+    const crossPositions = car.horizontal ? ROAD_POSITIONS_X : ROAD_POSITIONS_Z;
+
+    for (const crossPos of crossPositions) {
       let distToIntersection: number;
 
       if (car.horizontal) {
-        // We're on a horizontal road (fixed Z), check if we're at an X intersection
         distToIntersection = Math.abs(pos[0] - crossPos);
       } else {
-        // We're on a vertical road (fixed X), check if we're at a Z intersection
         distToIntersection = Math.abs(pos[2] - crossPos);
       }
 
-      // At an intersection (within a tight window so we decide once)
       if (distToIntersection < 2.0) {
-        car.turnCooldown = 3.0; // don't check again for 3 seconds
+        car.turnCooldown = 3.0;
 
         const rng = Math.random();
 
-        // 15% chance to stop briefly (simulating traffic light)
         if (rng < 0.15) {
           car.waitTimer = 1.5 + Math.random() * 3.0;
           return;
         }
 
-        // 30% chance to turn
         if (rng < 0.45) {
-          // Find the cross-road index
-          const crossRoadIndex = ROAD_POSITIONS.indexOf(crossPos);
+          const crossRoadIndex = crossPositions.indexOf(crossPos);
           if (crossRoadIndex === -1) return;
 
-          // Decide turn direction
           const turnRight = Math.random() > 0.5;
 
-          // Switch from horizontal to vertical or vice versa
           let newDir: Direction;
           if (car.horizontal) {
-            // Was going along X, now go along Z
             if (car.direction === 0) {
-              newDir = turnRight ? 3 : 1; // +X: right = -Z, left = +Z
+              newDir = turnRight ? 3 : 1;
             } else {
-              newDir = turnRight ? 1 : 3; // -X: right = +Z, left = -Z
+              newDir = turnRight ? 1 : 3;
             }
           } else {
-            // Was going along Z, now go along X
             if (car.direction === 1) {
-              newDir = turnRight ? 0 : 2; // +Z: right = +X, left = -X
+              newDir = turnRight ? 0 : 2;
             } else {
-              newDir = turnRight ? 2 : 0; // -Z: right = -X, left = +X
+              newDir = turnRight ? 2 : 0;
             }
           }
 
-          // Snap to the cross road
           const [newLx, newLz] = laneOffset(newDir);
           if (car.horizontal) {
-            // Was horizontal, snapping X to crossPos, keeping on new vertical road
             pos[0] = crossPos + newLx;
             car.roadIndex = crossRoadIndex;
           } else {
-            // Was vertical, snapping Z to crossPos, keeping on new horizontal road
             pos[2] = crossPos + newLz;
             car.roadIndex = crossRoadIndex;
           }
@@ -321,13 +305,11 @@ export class AITraffic {
           car.direction = newDir;
           car.horizontal = !car.horizontal;
 
-          // Slight speed variation after turn
           car.targetSpeed = 10 + Math.random() * 15;
-          car.speed *= 0.6; // slow down through the turn
+          car.speed *= 0.6;
           return;
         }
 
-        // Otherwise go straight, maybe adjust speed
         car.targetSpeed = 10 + Math.random() * 15;
       }
     }
@@ -394,8 +376,7 @@ export class Pedestrians {
 
     for (let i = 0; i < count; i++) {
       const horizontal = rng() > 0.5;
-      const roadIndex = Math.floor(rng() * ROAD_POSITIONS.length);
-      const roadCenter = ROAD_POSITIONS[roadIndex];
+      const roadIndex = Math.floor(rng() * ROAD_POSITIONS_X.length);
       const side = rng() > 0.5 ? 1 : -1;
 
       let dir: Direction;
@@ -405,18 +386,16 @@ export class Pedestrians {
         dir = rng() > 0.5 ? 1 : 3;
       }
 
-      // Position along the sidewalk
-      const along = ROAD_MIN + rng() * (ROAD_MAX - ROAD_MIN);
-      const sidewalkPos = roadCenter + side * SIDEWALK_OFFSET;
-
       let x: number, z: number;
       if (horizontal) {
-        // Horizontal road: fixed Z, walk along X
+        const roadCenter = ROAD_POSITIONS_Z[roadIndex];
+        const along = ROAD_MIN_X + rng() * (ROAD_MAX_X - ROAD_MIN_X);
         x = along;
-        z = sidewalkPos;
+        z = roadCenter + side * SIDEWALK_OFFSET;
       } else {
-        // Vertical road: fixed X, walk along Z
-        x = sidewalkPos;
+        const roadCenter = ROAD_POSITIONS_X[roadIndex];
+        const along = ROAD_MIN_Z + rng() * (ROAD_MAX_Z - ROAD_MIN_Z);
+        x = roadCenter + side * SIDEWALK_OFFSET;
         z = along;
       }
 
@@ -507,13 +486,14 @@ export class Pedestrians {
     npc.rotation += angleDiff * Math.min(1, 6 * dt);
 
     // Sidewalk correction: keep on the sidewalk
-    const roadCenter = ROAD_POSITIONS[npc.roadIndex];
-    const sidewalkTarget = roadCenter + npc.side * SIDEWALK_OFFSET;
-
     if (npc.horizontal) {
+      const roadCenter = ROAD_POSITIONS_Z[npc.roadIndex];
+      const sidewalkTarget = roadCenter + npc.side * SIDEWALK_OFFSET;
       const zErr = sidewalkTarget - npc.position[2];
       npc.position[2] += zErr * Math.min(1, 3 * dt);
     } else {
+      const roadCenter = ROAD_POSITIONS_X[npc.roadIndex];
+      const sidewalkTarget = roadCenter + npc.side * SIDEWALK_OFFSET;
       const xErr = sidewalkTarget - npc.position[0];
       npc.position[0] += xErr * Math.min(1, 3 * dt);
     }
@@ -526,22 +506,24 @@ export class Pedestrians {
     // Wrap around at the edges
     const margin = 10;
     if (npc.horizontal) {
-      if (npc.direction === 0 && npc.position[0] > ROAD_MAX + margin) {
-        npc.position[0] = ROAD_MIN - margin;
-      } else if (npc.direction === 2 && npc.position[0] < ROAD_MIN - margin) {
-        npc.position[0] = ROAD_MAX + margin;
+      if (npc.direction === 0 && npc.position[0] > ROAD_MAX_X + margin) {
+        npc.position[0] = ROAD_MIN_X - margin;
+      } else if (npc.direction === 2 && npc.position[0] < ROAD_MIN_X - margin) {
+        npc.position[0] = ROAD_MAX_X + margin;
       }
     } else {
-      if (npc.direction === 1 && npc.position[2] > ROAD_MAX + margin) {
-        npc.position[2] = ROAD_MIN - margin;
-      } else if (npc.direction === 3 && npc.position[2] < ROAD_MIN - margin) {
-        npc.position[2] = ROAD_MAX + margin;
+      if (npc.direction === 1 && npc.position[2] > ROAD_MAX_Z + margin) {
+        npc.position[2] = ROAD_MIN_Z - margin;
+      } else if (npc.direction === 3 && npc.position[2] < ROAD_MIN_Z - margin) {
+        npc.position[2] = ROAD_MAX_Z + margin;
       }
     }
   }
 
   private checkPedestrianIntersection(npc: NPCState): void {
-    for (const crossPos of ROAD_POSITIONS) {
+    const crossPositions = npc.horizontal ? ROAD_POSITIONS_X : ROAD_POSITIONS_Z;
+
+    for (const crossPos of crossPositions) {
       let distToIntersection: number;
 
       if (npc.horizontal) {
@@ -555,15 +537,13 @@ export class Pedestrians {
 
         const rng = Math.random();
 
-        // 20% chance to stop at intersection
         if (rng < 0.20) {
           npc.stopTimer = 2 + Math.random() * 4;
           return;
         }
 
-        // 35% chance to turn onto the cross-street sidewalk
         if (rng < 0.55) {
-          const crossRoadIndex = ROAD_POSITIONS.indexOf(crossPos);
+          const crossRoadIndex = crossPositions.indexOf(crossPos);
           if (crossRoadIndex === -1) return;
 
           const turnRight = Math.random() > 0.5;
@@ -583,7 +563,6 @@ export class Pedestrians {
             }
           }
 
-          // Pick a sidewalk side for the new road
           const newSide = Math.random() > 0.5 ? 1 : -1;
           const newSidewalkPos = crossPos + newSide * SIDEWALK_OFFSET;
 
@@ -598,20 +577,16 @@ export class Pedestrians {
           npc.roadIndex = crossRoadIndex;
           npc.side = newSide;
 
-          // Slight speed variation
           npc.targetSpeed = 1.5 + Math.random() * 1.5;
           npc.speed *= 0.7;
           return;
         }
 
-        // 15% chance to turn around
         if (rng < 0.70) {
           npc.direction = oppositeDir(npc.direction);
           npc.speed *= 0.5;
           return;
         }
-
-        // Otherwise keep going straight
       }
     }
   }

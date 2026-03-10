@@ -52,7 +52,7 @@ export class Renderer {
 
   // Dynamic uniform buffer sizing
   uniformStride = 256; // Will be set to minUniformBufferOffsetAlignment
-  maxObjects = 2048;
+  maxObjects = 4096;
 
   width = 0;
   height = 0;

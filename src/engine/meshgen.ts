@@ -71,6 +71,58 @@ export function createPlane(w: number, d: number, r: number, g: number, b: numbe
   return { vertices: new Float32Array(verts), indices: new Uint32Array(idx) };
 }
 
+export function applyHeightmap(
+  mesh: MeshData,
+  getHeight: (x: number, z: number) => number,
+  getColor?: (x: number, z: number, h: number, slopeX: number, slopeZ: number) => [number, number, number] | null
+): void {
+  const v = mesh.vertices;
+  const stride = 12;
+  const eps = 1.0;
+
+  // Pass 1: Set heights and optionally colors
+  for (let i = 0; i < v.length; i += stride) {
+    const px = v[i], pz = v[i + 2];
+    const h = getHeight(px, pz);
+    v[i + 1] = h;
+
+    if (getColor) {
+      const hpx = getHeight(px + eps, pz);
+      const hmx = getHeight(px - eps, pz);
+      const hpz = getHeight(px, pz + eps);
+      const hmz = getHeight(px, pz - eps);
+      const slopeX = (hpx - hmx) / (2 * eps);
+      const slopeZ = (hpz - hmz) / (2 * eps);
+      const c = getColor(px, pz, h, slopeX, slopeZ);
+      if (c) {
+        v[i + 8] = c[0];
+        v[i + 9] = c[1];
+        v[i + 10] = c[2];
+      }
+    }
+  }
+
+  // Pass 2: Recompute normals via finite differences
+  for (let i = 0; i < v.length; i += stride) {
+    const px = v[i], pz = v[i + 2];
+    const hpx = getHeight(px + eps, pz);
+    const hmx = getHeight(px - eps, pz);
+    const hpz = getHeight(px, pz + eps);
+    const hmz = getHeight(px, pz - eps);
+    // Tangent vectors
+    const tx = 2 * eps, ty1 = hpx - hmx, tz1 = 0;
+    const tx2 = 0, ty2 = hpz - hmz, tz2 = 2 * eps;
+    // Normal = cross(tangentX, tangentZ)
+    let nx = ty1 * tz2 - tz1 * ty2;
+    let ny = tz1 * tx2 - tx * tz2;
+    let nz = tx * ty2 - ty1 * tx2;
+    const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+    v[i + 3] = nx / len;
+    v[i + 4] = ny / len;
+    v[i + 5] = nz / len;
+  }
+}
+
 export function createCylinder(radius: number, height: number, segments: number, r: number, g: number, b: number): MeshData {
   const verts: number[] = [];
   const idx: number[] = [];

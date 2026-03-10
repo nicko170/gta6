@@ -1,15 +1,72 @@
 import { Player } from '../player/player';
 import { City } from './city';
+import {
+  getTerrainHeight, isWater,
+  MT_AIRPORT_X, MT_AIRPORT_Z, MT_RUNWAY_LENGTH,
+  CITY_X, CITY_Z, MT_ROAD_POINTS, LAKE_ROAD_POINTS,
+  CITY_ROAD_X, CITY_ROAD_Z, CITY_AIRPORT_X, CITY_AIRPORT_Z,
+  BOULEVARD_POINTS, AVENUE_POINTS, BOULEVARD_WIDTH,
+} from './terrain';
 
 export class Minimap {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
   size = 200;
   scale = 0.2;
+  terrainCanvas: HTMLCanvasElement | null = null;
 
   constructor() {
     this.canvas = document.getElementById('minimap-canvas') as HTMLCanvasElement;
     this.ctx = this.canvas.getContext('2d')!;
+  }
+
+  generateTerrainMap() {
+    const res = 512;
+    this.terrainCanvas = document.createElement('canvas');
+    this.terrainCanvas.width = res;
+    this.terrainCanvas.height = res;
+    const tctx = this.terrainCanvas.getContext('2d')!;
+    const imageData = tctx.createImageData(res, res);
+    const data = imageData.data;
+    const worldSize = 1000;
+
+    for (let py = 0; py < res; py++) {
+      for (let px = 0; px < res; px++) {
+        const wx = (px / res - 0.5) * worldSize * 2;
+        const wz = (py / res - 0.5) * worldSize * 2;
+        const h = getTerrainHeight(wx, wz);
+        const idx = (py * res + px) * 4;
+
+        if (isWater(wx, wz)) {
+          data[idx] = 15;
+          data[idx + 1] = 50;
+          data[idx + 2] = 120;
+        } else if (h > 90) {
+          // Snow
+          data[idx] = 210;
+          data[idx + 1] = 215;
+          data[idx + 2] = 220;
+        } else if (h > 40) {
+          // Mountain rock/high grass
+          const t = Math.min(1, (h - 40) / 60);
+          data[idx] = Math.round(45 + t * 50);
+          data[idx + 1] = Math.round(65 - t * 10);
+          data[idx + 2] = Math.round(35 - t * 10);
+        } else if (h > 5) {
+          // Countryside
+          data[idx] = 35;
+          data[idx + 1] = 70;
+          data[idx + 2] = 35;
+        } else {
+          // Flat ground
+          data[idx] = 30;
+          data[idx + 1] = 61;
+          data[idx + 2] = 30;
+        }
+        data[idx + 3] = 255;
+      }
+    }
+    tctx.putImageData(imageData, 0, 0);
   }
 
   render(player: Player, city: City) {
@@ -27,50 +84,102 @@ export class Minimap {
     ctx.arc(cx, cy, cx, 0, Math.PI * 2);
     ctx.clip();
 
-    // Background - dark green ground
+    // Background
     ctx.fillStyle = '#1e3d1e';
     ctx.fillRect(0, 0, this.size, this.size);
 
     // Transform: center on player, rotate so player's forward is UP
     ctx.save();
     ctx.translate(cx, cy);
-    // In our world: yaw=0 means facing +Z. On canvas, +Y is down.
-    // We want forward (+Z relative to player) to point UP (-Y on canvas).
-    // So rotate by -yaw + PI to flip Z to -Y
     ctx.rotate(player.yaw - Math.PI);
 
-    const s = this.scale;
-    const startGrid = -(city.GRID_SIZE * city.BLOCK_SIZE) / 2;
-    const gridSpan = city.GRID_SIZE * city.BLOCK_SIZE;
+    // Draw pre-rendered terrain map
+    if (this.terrainCanvas) {
+      const worldSize = 1000;
+      const mapScale = this.scale;
+      const mapSize = worldSize * 2 * mapScale;
+      ctx.drawImage(
+        this.terrainCanvas,
+        (-worldSize - px) * mapScale,
+        (-worldSize - pz) * mapScale,
+        mapSize,
+        mapSize
+      );
+    }
 
-    // Draw road fills (wider, filled rectangles)
+    const s = this.scale;
+    const gridStartX = CITY_ROAD_X[0];
+    const gridStartZ = CITY_ROAD_Z[0];
+    const gridEndX = CITY_ROAD_X[CITY_ROAD_X.length - 1];
+    const gridEndZ = CITY_ROAD_Z[CITY_ROAD_Z.length - 1];
+    const gridSpanX = gridEndX - gridStartX;
+    const gridSpanZ = gridEndZ - gridStartZ;
+
+    // Draw road fills using variable road positions
     ctx.fillStyle = '#484848';
     const roadHalf = city.ROAD_WIDTH / 2 * s;
-    for (let i = 0; i <= city.GRID_SIZE; i++) {
-      // Horizontal roads
-      const rz = (startGrid + i * city.BLOCK_SIZE - pz) * s;
-      ctx.fillRect((startGrid - px) * s, rz - roadHalf, gridSpan * s, roadHalf * 2);
-      // Vertical roads
-      const rx = (startGrid + i * city.BLOCK_SIZE - px) * s;
-      ctx.fillRect(rx - roadHalf, (startGrid - pz) * s, roadHalf * 2, gridSpan * s);
+
+    // Horizontal roads (at each Z position, span full X range)
+    for (const rz of CITY_ROAD_Z) {
+      const y = (rz - pz) * s;
+      ctx.fillRect((gridStartX - px) * s, y - roadHalf, gridSpanX * s, roadHalf * 2);
+    }
+
+    // Vertical roads (at each X position, span full Z range)
+    for (const rx of CITY_ROAD_X) {
+      const x = (rx - px) * s;
+      ctx.fillRect(x - roadHalf, (gridStartZ - pz) * s, roadHalf * 2, gridSpanZ * s);
     }
 
     // Road center lines
     ctx.strokeStyle = '#aaa';
     ctx.lineWidth = 0.5;
-    for (let i = 0; i <= city.GRID_SIZE; i++) {
-      const rz = (startGrid + i * city.BLOCK_SIZE - pz) * s;
+    for (const rz of CITY_ROAD_Z) {
+      const y = (rz - pz) * s;
       ctx.beginPath();
-      ctx.moveTo((startGrid - px) * s, rz);
-      ctx.lineTo((startGrid + gridSpan - px) * s, rz);
-      ctx.stroke();
-
-      const rx = (startGrid + i * city.BLOCK_SIZE - px) * s;
-      ctx.beginPath();
-      ctx.moveTo(rx, (startGrid - pz) * s);
-      ctx.lineTo(rx, (startGrid + gridSpan - pz) * s);
+      ctx.moveTo((gridStartX - px) * s, y);
+      ctx.lineTo((gridEndX - px) * s, y);
       ctx.stroke();
     }
+    for (const rx of CITY_ROAD_X) {
+      const x = (rx - px) * s;
+      ctx.beginPath();
+      ctx.moveTo(x, (gridStartZ - pz) * s);
+      ctx.lineTo(x, (gridEndZ - pz) * s);
+      ctx.stroke();
+    }
+
+    // Boulevards
+    ctx.strokeStyle = '#505050';
+    ctx.lineWidth = BOULEVARD_WIDTH * s;
+    const drawBoulevard = (points: [number, number][]) => {
+      ctx.beginPath();
+      for (let i = 0; i < points.length; i++) {
+        const bx = (points[i][0] - px) * s;
+        const bz = (points[i][1] - pz) * s;
+        if (i === 0) ctx.moveTo(bx, bz);
+        else ctx.lineTo(bx, bz);
+      }
+      ctx.stroke();
+    };
+    drawBoulevard(BOULEVARD_POINTS);
+    drawBoulevard(AVENUE_POINTS);
+
+    // Mountain roads
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 1.5;
+    const drawRoadPath = (points: [number, number][]) => {
+      ctx.beginPath();
+      for (let i = 0; i < points.length; i++) {
+        const rx = (points[i][0] - px) * s;
+        const rz = (points[i][1] - pz) * s;
+        if (i === 0) ctx.moveTo(rx, rz);
+        else ctx.lineTo(rx, rz);
+      }
+      ctx.stroke();
+    };
+    drawRoadPath(MT_ROAD_POINTS);
+    drawRoadPath(LAKE_ROAD_POINTS);
 
     // Buildings - filled blocks
     ctx.fillStyle = '#777';
@@ -82,15 +191,22 @@ export class Minimap {
       ctx.fillRect(bx - b.w * s / 2, bz - b.d * s / 2, b.w * s, b.d * s);
     }
 
-    // Airport runway
+    // City airport runway (E-W orientation)
     ctx.fillStyle = '#555';
     const rw = city.RUNWAY_WIDTH * s;
     const rl = city.RUNWAY_LENGTH * s;
-    ctx.fillRect((city.AIRPORT_X - px) * s - rw / 2, (city.AIRPORT_Z - pz) * s - rl / 2, rw, rl);
+    ctx.fillRect((CITY_AIRPORT_X - px) * s - rl / 2, (CITY_AIRPORT_Z - pz) * s - rw / 2, rl, rw);
 
-    // Terminal
+    // Terminal (south of runway)
     ctx.fillStyle = '#888';
-    ctx.fillRect((city.AIRPORT_X + 40 - px) * s, (city.AIRPORT_Z - 15 - pz) * s, 60 * s, 30 * s);
+    ctx.fillRect((CITY_AIRPORT_X - 30 - px) * s, (CITY_AIRPORT_Z + 40 - pz) * s, 60 * s, 30 * s);
+
+    // Mountain airport
+    ctx.fillStyle = '#555';
+    const mrl = MT_RUNWAY_LENGTH * s;
+    ctx.fillRect((MT_AIRPORT_X - px) * s - 10 * s, (MT_AIRPORT_Z - pz) * s - mrl / 2, 20 * s, mrl);
+    ctx.fillStyle = '#888';
+    ctx.fillRect((MT_AIRPORT_X + 20 - px) * s, (MT_AIRPORT_Z - 9 - pz) * s, 30 * s, 18 * s);
 
     // Vehicles
     for (const v of city.vehicles) {
@@ -100,6 +216,9 @@ export class Minimap {
       if (v.type === 'plane') {
         ctx.fillStyle = v.occupied ? '#5f5' : '#88f';
         ctx.fillRect(vx - 3, vz - 3, 6, 6);
+      } else if (v.type === 'boat') {
+        ctx.fillStyle = v.occupied ? '#5f5' : '#48f';
+        ctx.fillRect(vx - 2, vz - 3, 4, 6);
       } else {
         ctx.fillStyle = v.occupied ? '#5f5' : '#fa0';
         ctx.fillRect(vx - 2, vz - 2, 4, 4);

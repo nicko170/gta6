@@ -7,6 +7,7 @@ import { NetworkManager } from './network/network';
 import { AITraffic, Pedestrians } from './world/ai';
 import { vec3 } from './engine/math';
 import { checkCollision, resolveCollision } from './engine/physics';
+import { CITY_X, CITY_Z } from './world/terrain';
 
 async function main() {
   const loadBar = document.getElementById('load-bar') as HTMLElement;
@@ -25,7 +26,10 @@ async function main() {
   const flightStallEl = document.getElementById('flight-stall') as HTMLElement;
   const flightFlapsEl = document.getElementById('flight-flaps') as HTMLElement;
 
-  loadBar.style.width = '10%';
+  const setStatus = (window as any)._setLoadingStatus || (() => {});
+
+  loadBar.style.width = '5%';
+  setStatus('Initializing WebGPU');
 
   // Init renderer
   const canvas = document.getElementById('canvas') as HTMLCanvasElement;
@@ -33,7 +37,9 @@ async function main() {
   const success = await renderer.init();
   if (!success) return;
 
-  loadBar.style.width = '30%';
+  loadBar.style.width = '20%';
+  setStatus('Generating terrain');
+  await new Promise(r => setTimeout(r, 50));
 
   // Init input
   const input = new Input(canvas);
@@ -42,12 +48,26 @@ async function main() {
   const city = new City();
   city.generate(renderer);
 
-  loadBar.style.width = '70%';
+  loadBar.style.width = '50%';
+  setStatus('Building city');
+  await new Promise(r => setTimeout(r, 50));
 
-  // Create player - spawn on a road intersection with a clear view
-  const player = new Player([-160, 0, -155]);
+  // Generate minimap terrain
+  const minimap = new Minimap();
+  minimap.generateTerrainMap();
+
+  loadBar.style.width = '60%';
+  setStatus('Rendering minimap');
+  await new Promise(r => setTimeout(r, 50));
+
+  // Create player - spawn on a road intersection near city center
+  const player = new Player([CITY_X - 160, 0, CITY_Z - 155]);
   player.yaw = Math.PI * 0.25; // Face diagonally into the city
   player.createMesh(renderer);
+
+  loadBar.style.width = '70%';
+  setStatus('Spawning traffic');
+  await new Promise(r => setTimeout(r, 50));
 
   // Spawn AI traffic and pedestrians
   const aiTraffic = new AITraffic();
@@ -57,9 +77,8 @@ async function main() {
   pedestrians.spawn(renderer);
 
   loadBar.style.width = '85%';
-
-  // Init minimap
-  const minimap = new Minimap();
+  setStatus('Connecting to server');
+  await new Promise(r => setTimeout(r, 50));
 
   // Init networking
   const network = new NetworkManager();
@@ -73,12 +92,13 @@ async function main() {
   }));
 
   loadBar.style.width = '100%';
+  setStatus('Ready');
 
   // Hide loading screen
-  await new Promise(r => setTimeout(r, 500));
+  await new Promise(r => setTimeout(r, 600));
   loadingScreen.style.opacity = '0';
-  loadingScreen.style.transition = 'opacity 0.5s';
-  await new Promise(r => setTimeout(r, 500));
+  loadingScreen.style.transition = 'opacity 0.8s ease-out';
+  await new Promise(r => setTimeout(r, 800));
   loadingScreen.style.display = 'none';
 
   // Handle resize
