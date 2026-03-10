@@ -109,13 +109,25 @@ async function main() {
 
   await new Promise<void>(resolve => {
     const start = () => {
-      // Request fullscreen on mobile (must be in user gesture handler)
       if (input.isMobile) {
-        const d = document.documentElement as any;
-        if (d.requestFullscreen) d.requestFullscreen().catch(() => {});
-        else if (d.webkitRequestFullscreen) d.webkitRequestFullscreen();
-        // Try to lock landscape orientation
+        // Try fullscreen on body first (works better on iOS Safari)
+        const el = document.body as any;
+        const tryFS = (target: any) => {
+          if (target.requestFullscreen) return target.requestFullscreen().catch(() => {});
+          if (target.webkitRequestFullscreen) { target.webkitRequestFullscreen(); return Promise.resolve(); }
+          if (target.webkitEnterFullscreen) { target.webkitEnterFullscreen(); return Promise.resolve(); }
+          return Promise.resolve();
+        };
+        tryFS(el).then(() => {
+          // If body didn't work, try documentElement
+          if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
+            tryFS(document.documentElement);
+          }
+        });
+        // Lock landscape orientation
         try { (screen.orientation as any).lock('landscape').catch(() => {}); } catch {}
+        // iOS Safari fallback: scroll to hide address bar
+        setTimeout(() => window.scrollTo(0, 1), 100);
       }
       resolve();
     };
@@ -132,18 +144,20 @@ async function main() {
   // Handle resize
   window.addEventListener('resize', () => renderer.resize());
 
-  // Re-request fullscreen on mobile if user exits it (tap canvas to re-enter)
+  // Re-request fullscreen on mobile if user exits it
   if (input.isMobile) {
-    document.addEventListener('fullscreenchange', () => {
-      if (!document.fullscreenElement) {
+    const watchFS = () => {
+      if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
         const canvas = document.getElementById('canvas')!;
         canvas.addEventListener('touchstart', () => {
-          const d = document.documentElement as any;
-          if (d.requestFullscreen) d.requestFullscreen().catch(() => {});
-          else if (d.webkitRequestFullscreen) d.webkitRequestFullscreen();
+          const el = document.body as any;
+          if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+          else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
         }, { once: true });
       }
-    });
+    };
+    document.addEventListener('fullscreenchange', watchFS);
+    document.addEventListener('webkitfullscreenchange', watchFS);
   }
 
   // Game loop

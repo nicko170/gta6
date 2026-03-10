@@ -168,22 +168,34 @@ export class City {
       }
     }
 
-    // Fill intersection circles at nodes with 3+ connections
+    // Fill intersections at nodes to cover gaps between road segments
     for (const node of ROAD_NODES) {
       if (node.connections.length >= 2) {
-        // Find max road width at this node
         let maxW = 0;
         for (const segId of node.connections) {
           const seg = ROAD_SEGMENTS.find(s => s.id === segId);
           if (seg) maxW = Math.max(maxW, seg.width);
         }
-        const fillSize = maxW + 2;
+        // Use a larger fill to cover angled intersections
+        const fillSize = maxW + 6;
         const fill = createPlane(fillSize, fillSize, 0.3, 0.3, 0.32);
         const fillMesh = renderer.createMesh(fill.vertices, fill.indices, 'terrain');
         this.airportMeshes.push({
           mesh: fillMesh,
-          modelMatrix: mat4.translation(node.x, 0.021, node.z)
+          modelMatrix: mat4.translation(node.x, 0.019, node.z)
         });
+        // Add a rotated fill for better coverage at angled intersections
+        if (node.connections.length >= 3) {
+          const fill2 = createPlane(fillSize, fillSize, 0.3, 0.3, 0.32);
+          const fill2Mesh = renderer.createMesh(fill2.vertices, fill2.indices, 'terrain');
+          this.airportMeshes.push({
+            mesh: fill2Mesh,
+            modelMatrix: mat4.multiply(
+              mat4.translation(node.x, 0.019, node.z),
+              mat4.rotationY(Math.PI / 4)
+            )
+          });
+        }
       }
     }
   }
@@ -221,8 +233,9 @@ export class City {
 
         const district = getDistrictAt(sx, sz);
 
-        // Skip parks
+        // Skip parks and areas with no density (outside city)
         if (district.type === 'park') continue;
+        if (district.density <= 0) continue;
 
         // Density check
         if (rng() > district.density) continue;

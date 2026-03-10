@@ -144,23 +144,22 @@ function generate() {
 
   // ========================================
   // DIAGONAL BOULEVARDS through downtown
+  // Use dedicated waypoints so they don't create overlapping geometry with grid roads
   // ========================================
-  // Main boulevard: SW to NE through city center
   const blvdSW = addNode('blvd_sw', CX - 260, CZ + 220);
   const blvdNE = addNode('blvd_ne', CX + 230, CZ - 220);
-  // Connect through existing downtown nodes near center
-  addSeg('blvd_sw', dtIds[3][0], 18);
-  addSeg(dtIds[3][0], dtIds[2][2], 18); // cuts diagonal through grid
-  addSeg(dtIds[2][2], dtIds[1][4], 18);
-  addSeg(dtIds[1][4], 'blvd_ne', 18);
+  addSeg('blvd_sw', 'blvd_ne', 18, [
+    [CX - 140, CZ + 120],
+    [CX, CZ],
+    [CX + 120, CZ - 100],
+  ]);
 
-  // Secondary avenue: SE to NW
   const aveSE = addNode('ave_se', CX + 240, CZ + 190);
   const aveNW = addNode('ave_nw', CX - 230, CZ - 140);
-  addSeg('ave_se', dtIds[3][4], 16);
-  addSeg(dtIds[3][4], dtIds[2][2], 16);
-  addSeg(dtIds[2][2], dtIds[1][0], 16);
-  addSeg(dtIds[1][0], 'ave_nw', 16);
+  addSeg('ave_se', 'ave_nw', 16, [
+    [CX + 80, CZ + 70],
+    [CX - 70, CZ - 30],
+  ]);
 
   // ========================================
   // MIDTOWN RING - extends from downtown edges
@@ -454,8 +453,8 @@ export function getDistrictAt(x: number, z: number): District {
   const mdx = x - midtown.center[0], mdz = z - midtown.center[1];
   if (Math.sqrt(mdx * mdx + mdz * mdz) < midtown.radius) return midtown;
 
-  // Outside all districts
-  return midtown; // default
+  // Outside all districts - return a "none" district with zero density
+  return { type: 'midtown', center: [0, 0], radius: 0, minHeight: 0, maxHeight: 0, density: 0, hasYards: false };
 }
 
 // ========================================
@@ -615,7 +614,7 @@ export function isOnAnyRoad(x: number, z: number): boolean {
     const seg = segmentArray[si];
     const pts = getSegmentPoints(seg);
     const [dist] = distToPath(x, z, pts);
-    if (dist < seg.width / 2) return true;
+    if (dist < seg.width / 2 + 3) return true; // +3 for sidewalk margin
   }
   return false;
 }
