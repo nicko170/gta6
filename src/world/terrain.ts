@@ -1,6 +1,8 @@
 // Shared terrain height function and water detection
 // CPU-side noise must match terrain.wgsl exactly for physics/rendering consistency
 
+import { isOnAnyRoad, CITY_ROAD_X as _CITY_ROAD_X, CITY_ROAD_Z as _CITY_ROAD_Z } from './road-network';
+
 export const WATER_LEVEL = -1;
 
 // City center offset (city pushed south)
@@ -64,40 +66,9 @@ export const MT_ROAD_WIDTH = 8;
 export const CITY_AIRPORT_X = 0;
 export const CITY_AIRPORT_Z = 680;
 
-// Diagonal boulevards through city (break up the grid)
-export const BOULEVARD_WIDTH = 18;
-export const BOULEVARD_POINTS: [number, number][] = [
-  [CITY_X - 290, CITY_Z + 240],
-  [CITY_X - 140, CITY_Z + 120],
-  [CITY_X, CITY_Z],
-  [CITY_X + 120, CITY_Z - 100],
-  [CITY_X + 250, CITY_Z - 240],
-];
-export const AVENUE_POINTS: [number, number][] = [
-  [CITY_X + 260, CITY_Z + 210],
-  [CITY_X + 80, CITY_Z + 70],
-  [CITY_X - 70, CITY_Z - 30],
-  [CITY_X - 250, CITY_Z - 160],
-];
-
-// Variable block sizes (non-uniform grid)
-export const BLOCK_WIDTHS = [65, 95, 70, 100, 75, 60]; // 6 columns
-export const BLOCK_DEPTHS = [60, 80, 100, 100, 80, 50]; // 6 rows
-
-// Precomputed road positions in world space
-export const CITY_ROAD_X: number[] = [];
-export const CITY_ROAD_Z: number[] = [];
-{
-  const totalW = BLOCK_WIDTHS.reduce((a, b) => a + b, 0);
-  let x = -totalW / 2 + CITY_X;
-  CITY_ROAD_X.push(x);
-  for (const w of BLOCK_WIDTHS) { x += w; CITY_ROAD_X.push(x); }
-
-  const totalD = BLOCK_DEPTHS.reduce((a, b) => a + b, 0);
-  let z = -totalD / 2 + CITY_Z;
-  CITY_ROAD_Z.push(z);
-  for (const d of BLOCK_DEPTHS) { z += d; CITY_ROAD_Z.push(z); }
-}
+// Road positions derived from road network (backward compat)
+export const CITY_ROAD_X: number[] = _CITY_ROAD_X;
+export const CITY_ROAD_Z: number[] = _CITY_ROAD_Z;
 
 // --- CPU noise functions matching terrain.wgsl ---
 
@@ -208,9 +179,7 @@ export function getMountainRoadHeight(x: number, z: number): number {
 }
 
 export function isOnBoulevard(x: number, z: number): boolean {
-  const d1 = distanceToPath(x, z, BOULEVARD_POINTS)[0];
-  const d2 = distanceToPath(x, z, AVENUE_POINTS)[0];
-  return Math.min(d1, d2) < BOULEVARD_WIDTH / 2;
+  return isOnAnyRoad(x, z);
 }
 
 export function getTerrainHeight(x: number, z: number): number {

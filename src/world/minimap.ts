@@ -4,9 +4,11 @@ import {
   getTerrainHeight, isWater,
   MT_AIRPORT_X, MT_AIRPORT_Z, MT_RUNWAY_LENGTH,
   CITY_X, CITY_Z, MT_ROAD_POINTS, LAKE_ROAD_POINTS,
-  CITY_ROAD_X, CITY_ROAD_Z, CITY_AIRPORT_X, CITY_AIRPORT_Z,
-  BOULEVARD_POINTS, AVENUE_POINTS, BOULEVARD_WIDTH,
+  CITY_AIRPORT_X, CITY_AIRPORT_Z,
 } from './terrain';
+import {
+  ROAD_SEGMENTS, getSegmentPoints, getDistrictAt,
+} from './road-network';
 
 export class Minimap {
   canvas: HTMLCanvasElement;
@@ -42,23 +44,19 @@ export class Minimap {
           data[idx + 1] = 50;
           data[idx + 2] = 120;
         } else if (h > 90) {
-          // Snow
           data[idx] = 210;
           data[idx + 1] = 215;
           data[idx + 2] = 220;
         } else if (h > 40) {
-          // Mountain rock/high grass
           const t = Math.min(1, (h - 40) / 60);
           data[idx] = Math.round(45 + t * 50);
           data[idx + 1] = Math.round(65 - t * 10);
           data[idx + 2] = Math.round(35 - t * 10);
         } else if (h > 5) {
-          // Countryside
           data[idx] = 35;
           data[idx + 1] = 70;
           data[idx + 2] = 35;
         } else {
-          // Flat ground
           data[idx] = 30;
           data[idx + 1] = 61;
           data[idx + 2] = 30;
@@ -84,11 +82,10 @@ export class Minimap {
     ctx.arc(cx, cy, cx, 0, Math.PI * 2);
     ctx.clip();
 
-    // Background
     ctx.fillStyle = '#1e3d1e';
     ctx.fillRect(0, 0, this.size, this.size);
 
-    // Transform: center on player, rotate so player's forward is UP
+    // Transform: center on player, rotate so forward is UP
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(player.yaw - Math.PI);
@@ -108,66 +105,42 @@ export class Minimap {
     }
 
     const s = this.scale;
-    const gridStartX = CITY_ROAD_X[0];
-    const gridStartZ = CITY_ROAD_Z[0];
-    const gridEndX = CITY_ROAD_X[CITY_ROAD_X.length - 1];
-    const gridEndZ = CITY_ROAD_Z[CITY_ROAD_Z.length - 1];
-    const gridSpanX = gridEndX - gridStartX;
-    const gridSpanZ = gridEndZ - gridStartZ;
 
-    // Draw road fills using variable road positions
-    ctx.fillStyle = '#484848';
-    const roadHalf = city.ROAD_WIDTH / 2 * s;
-
-    // Horizontal roads (at each Z position, span full X range)
-    for (const rz of CITY_ROAD_Z) {
-      const y = (rz - pz) * s;
-      ctx.fillRect((gridStartX - px) * s, y - roadHalf, gridSpanX * s, roadHalf * 2);
-    }
-
-    // Vertical roads (at each X position, span full Z range)
-    for (const rx of CITY_ROAD_X) {
-      const x = (rx - px) * s;
-      ctx.fillRect(x - roadHalf, (gridStartZ - pz) * s, roadHalf * 2, gridSpanZ * s);
-    }
-
-    // Road center lines
-    ctx.strokeStyle = '#aaa';
-    ctx.lineWidth = 0.5;
-    for (const rz of CITY_ROAD_Z) {
-      const y = (rz - pz) * s;
+    // Draw all road segments as polylines
+    for (const seg of ROAD_SEGMENTS) {
+      const pts = getSegmentPoints(seg);
+      ctx.strokeStyle = seg.width >= 16 ? '#505050' : '#484848';
+      ctx.lineWidth = seg.width * s;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
       ctx.beginPath();
-      ctx.moveTo((gridStartX - px) * s, y);
-      ctx.lineTo((gridEndX - px) * s, y);
-      ctx.stroke();
-    }
-    for (const rx of CITY_ROAD_X) {
-      const x = (rx - px) * s;
-      ctx.beginPath();
-      ctx.moveTo(x, (gridStartZ - pz) * s);
-      ctx.lineTo(x, (gridEndZ - pz) * s);
-      ctx.stroke();
-    }
-
-    // Boulevards
-    ctx.strokeStyle = '#505050';
-    ctx.lineWidth = BOULEVARD_WIDTH * s;
-    const drawBoulevard = (points: [number, number][]) => {
-      ctx.beginPath();
-      for (let i = 0; i < points.length; i++) {
-        const bx = (points[i][0] - px) * s;
-        const bz = (points[i][1] - pz) * s;
-        if (i === 0) ctx.moveTo(bx, bz);
-        else ctx.lineTo(bx, bz);
+      for (let i = 0; i < pts.length; i++) {
+        const sx = (pts[i][0] - px) * s;
+        const sz = (pts[i][1] - pz) * s;
+        if (i === 0) ctx.moveTo(sx, sz);
+        else ctx.lineTo(sx, sz);
       }
       ctx.stroke();
-    };
-    drawBoulevard(BOULEVARD_POINTS);
-    drawBoulevard(AVENUE_POINTS);
+
+      // Center line for wider roads
+      if (seg.width >= 12) {
+        ctx.strokeStyle = '#777';
+        ctx.lineWidth = 0.4;
+        ctx.beginPath();
+        for (let i = 0; i < pts.length; i++) {
+          const sx = (pts[i][0] - px) * s;
+          const sz = (pts[i][1] - pz) * s;
+          if (i === 0) ctx.moveTo(sx, sz);
+          else ctx.lineTo(sx, sz);
+        }
+        ctx.stroke();
+      }
+    }
 
     // Mountain roads
     ctx.strokeStyle = '#555';
     ctx.lineWidth = 1.5;
+    ctx.lineCap = 'round';
     const drawRoadPath = (points: [number, number][]) => {
       ctx.beginPath();
       for (let i = 0; i < points.length; i++) {
@@ -181,13 +154,21 @@ export class Minimap {
     drawRoadPath(MT_ROAD_POINTS);
     drawRoadPath(LAKE_ROAD_POINTS);
 
-    // Buildings - filled blocks
-    ctx.fillStyle = '#777';
+    // Buildings - colored by district
     for (const b of city.buildings) {
       const bx = (b.x - px) * s;
       const bz = (b.z - pz) * s;
-      // Skip if off screen
       if (Math.abs(bx) > cx + 20 || Math.abs(bz) > cy + 20) continue;
+
+      const district = getDistrictAt(b.x, b.z);
+      switch (district.type) {
+        case 'downtown': ctx.fillStyle = '#999'; break;
+        case 'midtown': ctx.fillStyle = '#888'; break;
+        case 'residential': ctx.fillStyle = '#a97'; break;
+        case 'waterfront': ctx.fillStyle = '#9ab'; break;
+        case 'industrial': ctx.fillStyle = '#776'; break;
+        default: ctx.fillStyle = '#777'; break;
+      }
       ctx.fillRect(bx - b.w * s / 2, bz - b.d * s / 2, b.w * s, b.d * s);
     }
 
@@ -197,7 +178,6 @@ export class Minimap {
     const rl = city.RUNWAY_LENGTH * s;
     ctx.fillRect((CITY_AIRPORT_X - px) * s - rl / 2, (CITY_AIRPORT_Z - pz) * s - rw / 2, rl, rw);
 
-    // Terminal (south of runway)
     ctx.fillStyle = '#888';
     ctx.fillRect((CITY_AIRPORT_X - 30 - px) * s, (CITY_AIRPORT_Z + 40 - pz) * s, 60 * s, 30 * s);
 
@@ -227,7 +207,7 @@ export class Minimap {
 
     ctx.restore(); // rotation transform
 
-    // Player indicator - always centered, arrow pointing UP
+    // Player indicator
     ctx.fillStyle = '#fff';
     ctx.beginPath();
     ctx.moveTo(cx, cy - 7);
@@ -237,7 +217,6 @@ export class Minimap {
     ctx.closePath();
     ctx.fill();
 
-    // White outline for player dot
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 1;
     ctx.stroke();

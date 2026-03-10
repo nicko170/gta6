@@ -2,26 +2,14 @@ import { Renderer, Mesh, RenderObject } from '../engine/renderer';
 import { Vehicle, VehicleType } from '../vehicles/vehicle';
 import { Vec3, mat4 } from '../engine/math';
 import { createBox, mergeMeshes } from '../engine/meshgen';
-import { CITY_X, CITY_Z, CITY_ROAD_X, CITY_ROAD_Z } from './terrain';
+import {
+  ROAD_SEGMENTS, ROAD_NODES, RoadSegment,
+  getSegmentPoints, getPointAlongSegment, getTangentAlongSegment,
+  getSegmentLength, getNonDeadEndSegments, getConnectedSegments,
+  getOtherNode, getNodeById, isOnAnyRoad,
+} from './road-network';
 
-// ---- Road grid constants ----
-const ROAD_WIDTH = 14;
-const HALF_ROAD = ROAD_WIDTH / 2;
-const LANE_OFFSET = 3; // offset from road center for lane driving
-const SIDEWALK_WIDTH = 2;
-const SIDEWALK_OFFSET = HALF_ROAD + SIDEWALK_WIDTH / 2; // 8 units from road center
-
-// Use precomputed variable-width road positions from terrain.ts
-const ROAD_POSITIONS_X = CITY_ROAD_X;
-const ROAD_POSITIONS_Z = CITY_ROAD_Z;
-
-// Road extent: cars should stay within the grid road area
-const ROAD_MIN_X = CITY_ROAD_X[0] - HALF_ROAD;
-const ROAD_MAX_X = CITY_ROAD_X[CITY_ROAD_X.length - 1] + HALF_ROAD;
-const ROAD_MIN_Z = CITY_ROAD_Z[0] - HALF_ROAD;
-const ROAD_MAX_Z = CITY_ROAD_Z[CITY_ROAD_Z.length - 1] + HALF_ROAD;
-
-// ---- Seeded random ----
+// Seeded random
 function seededRandom(seed: number) {
   let s = seed;
   return () => {
@@ -30,53 +18,18 @@ function seededRandom(seed: number) {
   };
 }
 
-// ---- Direction helpers ----
-// Direction: 0 = +X, 1 = +Z, 2 = -X, 3 = -Z
-type Direction = 0 | 1 | 2 | 3;
-
-function directionAngle(dir: Direction): number {
-  switch (dir) {
-    case 0: return -Math.PI / 2;  // +X
-    case 1: return 0;              // +Z
-    case 2: return Math.PI / 2;    // -X
-    case 3: return Math.PI;        // -Z
-  }
-}
-
-function directionVector(dir: Direction): [number, number] {
-  switch (dir) {
-    case 0: return [1, 0];
-    case 1: return [0, 1];
-    case 2: return [-1, 0];
-    case 3: return [0, -1];
-  }
-}
-
-function oppositeDir(dir: Direction): Direction {
-  return ((dir + 2) % 4) as Direction;
-}
-
-// Lane offset perpendicular to travel direction (drive on the right side)
-function laneOffset(dir: Direction): [number, number] {
-  switch (dir) {
-    case 0: return [0, -LANE_OFFSET];  // traveling +X, lane offset -Z
-    case 1: return [LANE_OFFSET, 0];   // traveling +Z, lane offset +X
-    case 2: return [0, LANE_OFFSET];   // traveling -X, lane offset +Z
-    case 3: return [-LANE_OFFSET, 0];  // traveling -Z, lane offset -X
-  }
-}
+const LANE_OFFSET = 3;
 
 // ---- AI Car state ----
 interface AICarState {
   vehicle: Vehicle;
-  roadIndex: number;       // index into ROAD_POSITIONS_X or _Z for the road we're on
-  horizontal: boolean;     // true = traveling along X axis (road is at fixed Z)
-  direction: Direction;
+  currentSegment: RoadSegment;
+  segmentProgress: number;  // 0-1 along segment
+  forward: boolean;          // true = from->to, false = to->from
   speed: number;
   targetSpeed: number;
-  nextDecisionDist: number; // distance to next intersection for decision
-  waitTimer: number;        // > 0 if waiting at intersection
-  turnCooldown: number;     // prevents immediate re-turning
+  waitTimer: number;
+  decisionMade: boolean;     // already chose at current node endpoint?
 }
 
 // ---- AITraffic class ----
@@ -84,6 +37,7 @@ export class AITraffic {
   vehicles: Vehicle[] = [];
   private cars: AICarState[] = [];
   private spawned = false;
+  private drivableSegments: RoadSegment[] = [];
 
   constructor() {}
 
@@ -91,56 +45,47 @@ export class AITraffic {
     if (this.spawned) return;
     this.spawned = true;
 
+    this.drivableSegments = getNonDeadEndSegments();
+    if (this.drivableSegments.length === 0) return;
+
     const rng = seededRandom(7777);
     const count = 20 + Math.floor(rng() * 11); // 20-30 cars
     const types: VehicleType[] = ['sedan', 'sports', 'truck'];
 
     for (let i = 0; i < count; i++) {
-      const horizontal = rng() > 0.5;
-      const roadIndex = Math.floor(rng() * ROAD_POSITIONS_X.length);
+      const seg = this.drivableSegments[Math.floor(rng() * this.drivableSegments.length)];
+      const progress = 0.1 + rng() * 0.8;
+      const forward = rng() > 0.5;
 
-      // Pick a direction
-      let dir: Direction;
-      if (horizontal) {
-        dir = rng() > 0.5 ? 0 : 2; // +X or -X
-      } else {
-        dir = rng() > 0.5 ? 1 : 3; // +Z or -Z
-      }
+      const [px, pz] = getPointAlongSegment(seg, progress);
+      const [tx, tz] = getTangentAlongSegment(seg, progress);
 
-      // Place car along the road at a random position
-      const [lx, lz] = laneOffset(dir);
+      // Lane offset (drive on right side)
+      const dir = forward ? 1 : -1;
+      const perpX = -tz * dir;
+      const perpZ = tx * dir;
+      const x = px + perpX * LANE_OFFSET;
+      const z = pz + perpZ * LANE_OFFSET;
 
-      let x: number, z: number;
-      if (horizontal) {
-        const roadPos = ROAD_POSITIONS_Z[roadIndex];
-        const t = rng();
-        x = ROAD_MIN_X + t * (ROAD_MAX_X - ROAD_MIN_X);
-        z = roadPos + lz;
-      } else {
-        const roadPos = ROAD_POSITIONS_X[roadIndex];
-        const t = rng();
-        x = roadPos + lx;
-        z = ROAD_MIN_Z + t * (ROAD_MAX_Z - ROAD_MIN_Z);
-      }
+      const angle = Math.atan2(tx * dir, tz * dir);
 
       const type = types[Math.floor(rng() * types.length)];
       const vehicle = new Vehicle(type, [x, 0, z]);
-      vehicle.body.rotation = directionAngle(dir);
+      vehicle.body.rotation = angle;
       vehicle.createMesh(renderer);
 
-      const targetSpeed = 10 + rng() * 15; // 10-25 units/sec
+      const targetSpeed = 10 + rng() * 15;
 
       this.vehicles.push(vehicle);
       this.cars.push({
         vehicle,
-        roadIndex,
-        horizontal,
-        direction: dir,
-        speed: targetSpeed * (0.5 + rng() * 0.5), // start at partial speed
+        currentSegment: seg,
+        segmentProgress: progress,
+        forward,
+        speed: targetSpeed * (0.5 + rng() * 0.5),
         targetSpeed,
-        nextDecisionDist: 0,
         waitTimer: 0,
-        turnCooldown: 0,
+        decisionMade: false,
       });
     }
   }
@@ -155,79 +100,61 @@ export class AITraffic {
     const v = car.vehicle;
     const pos = v.body.position;
 
-    // Decrease cooldowns
-    if (car.turnCooldown > 0) car.turnCooldown -= dt;
-
-    // Wait timer (stopped at intersection, e.g. simulating red light)
+    // Wait timer
     if (car.waitTimer > 0) {
       car.waitTimer -= dt;
-      car.speed *= 0.9; // decelerate while waiting
+      car.speed *= 0.9;
       if (car.speed < 0.5) car.speed = 0;
-      // Still apply ground height
       pos[1] = getGroundHeight(pos[0], pos[2]);
       return;
     }
 
-    // Accelerate/decelerate toward target speed
+    // Accelerate/decelerate
     if (car.speed < car.targetSpeed) {
       car.speed = Math.min(car.targetSpeed, car.speed + 12 * dt);
     } else {
       car.speed = Math.max(car.targetSpeed, car.speed - 8 * dt);
     }
 
-    // Move along direction
-    const [dx, dz] = directionVector(car.direction);
-    pos[0] += dx * car.speed * dt;
-    pos[2] += dz * car.speed * dt;
+    // Advance along segment
+    const segLen = getSegmentLength(car.currentSegment);
+    if (segLen > 0) {
+      const progressDelta = (car.speed * dt) / segLen;
+      car.segmentProgress += car.forward ? progressDelta : -progressDelta;
+    }
 
-    // Keep car on the ground
+    // Check if reached segment end
+    if (car.segmentProgress >= 1 || car.segmentProgress <= 0) {
+      this.handleNodeTransition(car);
+    }
+
+    // Clamp progress
+    car.segmentProgress = Math.max(0.001, Math.min(0.999, car.segmentProgress));
+
+    // Compute position from segment
+    const [px, pz] = getPointAlongSegment(car.currentSegment, car.segmentProgress);
+    const [tx, tz] = getTangentAlongSegment(car.currentSegment, car.segmentProgress);
+
+    const dir = car.forward ? 1 : -1;
+    const perpX = -tz * dir;
+    const perpZ = tx * dir;
+
+    const targetX = px + perpX * LANE_OFFSET;
+    const targetZ = pz + perpZ * LANE_OFFSET;
+
+    // Smooth position toward target (avoids teleporting on transitions)
+    pos[0] += (targetX - pos[0]) * Math.min(1, 8 * dt);
+    pos[2] += (targetZ - pos[2]) * Math.min(1, 8 * dt);
     pos[1] = getGroundHeight(pos[0], pos[2]);
 
-    // Smooth rotation toward desired angle
-    const targetAngle = directionAngle(car.direction);
+    // Smooth rotation
+    const targetAngle = Math.atan2(tx * dir, tz * dir);
     let angleDiff = targetAngle - v.body.rotation;
-    // Normalize to [-PI, PI]
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
     v.body.rotation += angleDiff * Math.min(1, 5 * dt);
 
-    // Lane correction: drift back toward the correct lane position
-    const [lx, lz] = laneOffset(car.direction);
-
-    if (car.horizontal) {
-      const roadCenter = ROAD_POSITIONS_Z[car.roadIndex];
-      const targetZ = roadCenter + lz;
-      const zErr = targetZ - pos[2];
-      pos[2] += zErr * Math.min(1, 3 * dt);
-    } else {
-      const roadCenter = ROAD_POSITIONS_X[car.roadIndex];
-      const targetX = roadCenter + lx;
-      const xErr = targetX - pos[0];
-      pos[0] += xErr * Math.min(1, 3 * dt);
-    }
-
-    // Check for intersections and make decisions
-    if (car.turnCooldown <= 0) {
-      this.checkIntersection(car);
-    }
-
-    // Wrap around: if car goes beyond the road grid, teleport to the other end
-    const margin = 20;
-    if (car.horizontal) {
-      if (car.direction === 0 && pos[0] > ROAD_MAX_X + margin) {
-        pos[0] = ROAD_MIN_X - margin;
-      } else if (car.direction === 2 && pos[0] < ROAD_MIN_X - margin) {
-        pos[0] = ROAD_MAX_X + margin;
-      }
-    } else {
-      if (car.direction === 1 && pos[2] > ROAD_MAX_Z + margin) {
-        pos[2] = ROAD_MIN_Z - margin;
-      } else if (car.direction === 3 && pos[2] < ROAD_MIN_Z - margin) {
-        pos[2] = ROAD_MAX_Z + margin;
-      }
-    }
-
-    // Simple collision avoidance with other AI cars
+    // Collision avoidance
     for (const other of this.cars) {
       if (other === car) continue;
       const op = other.vehicle.body.position;
@@ -236,83 +163,55 @@ export class AITraffic {
       const dist = Math.sqrt(ddx * ddx + ddz * ddz);
 
       if (dist < 8) {
-        // Check if the other car is ahead of us in our travel direction
-        const [fdx, fdz] = directionVector(car.direction);
+        const fdx = Math.sin(v.body.rotation);
+        const fdz = Math.cos(v.body.rotation);
         const dot = ddx * fdx + ddz * fdz;
         if (dot > 0 && dot < 12) {
-          // Other car is ahead - slow down
           car.speed = Math.max(0, car.speed - 30 * dt);
         }
       }
     }
   }
 
-  private checkIntersection(car: AICarState): void {
-    const pos = car.vehicle.body.position;
+  private handleNodeTransition(car: AICarState): void {
+    const atEnd = car.segmentProgress >= 1;
+    const nodeId = atEnd
+      ? (car.forward ? car.currentSegment.to : car.currentSegment.from)
+      : (car.forward ? car.currentSegment.from : car.currentSegment.to);
 
-    // Cross-road positions depending on orientation
-    const crossPositions = car.horizontal ? ROAD_POSITIONS_X : ROAD_POSITIONS_Z;
-
-    for (const crossPos of crossPositions) {
-      let distToIntersection: number;
-
-      if (car.horizontal) {
-        distToIntersection = Math.abs(pos[0] - crossPos);
-      } else {
-        distToIntersection = Math.abs(pos[2] - crossPos);
-      }
-
-      if (distToIntersection < 2.0) {
-        car.turnCooldown = 3.0;
-
-        const rng = Math.random();
-
-        if (rng < 0.15) {
-          car.waitTimer = 1.5 + Math.random() * 3.0;
-          return;
-        }
-
-        if (rng < 0.45) {
-          const crossRoadIndex = crossPositions.indexOf(crossPos);
-          if (crossRoadIndex === -1) return;
-
-          const turnRight = Math.random() > 0.5;
-
-          let newDir: Direction;
-          if (car.horizontal) {
-            if (car.direction === 0) {
-              newDir = turnRight ? 3 : 1;
-            } else {
-              newDir = turnRight ? 1 : 3;
-            }
-          } else {
-            if (car.direction === 1) {
-              newDir = turnRight ? 0 : 2;
-            } else {
-              newDir = turnRight ? 2 : 0;
-            }
-          }
-
-          const [newLx, newLz] = laneOffset(newDir);
-          if (car.horizontal) {
-            pos[0] = crossPos + newLx;
-            car.roadIndex = crossRoadIndex;
-          } else {
-            pos[2] = crossPos + newLz;
-            car.roadIndex = crossRoadIndex;
-          }
-
-          car.direction = newDir;
-          car.horizontal = !car.horizontal;
-
-          car.targetSpeed = 10 + Math.random() * 15;
-          car.speed *= 0.6;
-          return;
-        }
-
-        car.targetSpeed = 10 + Math.random() * 15;
-      }
+    const node = getNodeById(nodeId);
+    if (!node) {
+      // Reverse direction
+      car.forward = !car.forward;
+      car.segmentProgress = car.forward ? 0.01 : 0.99;
+      return;
     }
+
+    // Get connected segments (excluding current)
+    const connected = getConnectedSegments(nodeId)
+      .filter(s => s.id !== car.currentSegment.id && !s.isCulDeSac);
+
+    if (connected.length === 0) {
+      // Dead end - reverse
+      car.forward = !car.forward;
+      car.segmentProgress = car.forward ? 0.01 : 0.99;
+      car.speed *= 0.4;
+      return;
+    }
+
+    // Random wait chance (simulate traffic light)
+    if (Math.random() < 0.15) {
+      car.waitTimer = 1.5 + Math.random() * 3;
+    }
+
+    // Pick random connected segment
+    const nextSeg = connected[Math.floor(Math.random() * connected.length)];
+    car.currentSegment = nextSeg;
+    // Determine direction: if this node is the 'from' node, go forward
+    car.forward = nextSeg.from === nodeId;
+    car.segmentProgress = car.forward ? 0.01 : 0.99;
+    car.targetSpeed = 10 + Math.random() * 15;
+    car.speed *= 0.6;
   }
 
   getRenderObjects(): RenderObject[] {
@@ -331,13 +230,13 @@ interface NPCState {
   rotation: number;
   speed: number;
   targetSpeed: number;
-  roadIndex: number;        // which road they're walking along
-  horizontal: boolean;      // walking along horizontal or vertical road
-  side: number;             // -1 or +1 for which side of the road
-  direction: Direction;
-  stopTimer: number;        // > 0 means standing still
-  turnCooldown: number;
-  hitTimer: number;         // > 0 means ragdolling from vehicle hit
+  currentSegment: RoadSegment;
+  segmentProgress: number;
+  forward: boolean;
+  sidewalkSide: number;     // -1 or +1 for which side of the road
+  stopTimer: number;
+  transitionCooldown: number;
+  hitTimer: number;
 }
 
 // ---- Pedestrians class ----
@@ -352,10 +251,9 @@ export class Pedestrians {
     if (this.spawned) return;
     this.spawned = true;
 
-    // Create a simple humanoid mesh: body + head + legs
-    const torso = createBox(0.5, 0.7, 0.3, 0.2, 0.35, 0.6);    // blue-ish shirt
-    const head = createBox(0.3, 0.3, 0.3, 0.85, 0.7, 0.55);     // skin tone
-    const legL = createBox(0.18, 0.6, 0.22, 0.25, 0.25, 0.35);  // dark pants
+    const torso = createBox(0.5, 0.7, 0.3, 0.2, 0.35, 0.6);
+    const head = createBox(0.3, 0.3, 0.3, 0.85, 0.7, 0.55);
+    const legL = createBox(0.18, 0.6, 0.22, 0.25, 0.25, 0.35);
     const legR = createBox(0.18, 0.6, 0.22, 0.25, 0.25, 0.35);
     const armL = createBox(0.15, 0.55, 0.18, 0.2, 0.35, 0.6);
     const armR = createBox(0.15, 0.55, 0.18, 0.2, 0.35, 0.6);
@@ -371,48 +269,49 @@ export class Pedestrians {
 
     this.sharedMesh = renderer.createMesh(merged.vertices, merged.indices, 'object');
 
+    const drivableSegments = getNonDeadEndSegments();
+    if (drivableSegments.length === 0) return;
+
     const rng = seededRandom(5555);
     const count = 40 + Math.floor(rng() * 21); // 40-60 NPCs
 
     for (let i = 0; i < count; i++) {
-      const horizontal = rng() > 0.5;
-      const roadIndex = Math.floor(rng() * ROAD_POSITIONS_X.length);
+      const seg = drivableSegments[Math.floor(rng() * drivableSegments.length)];
+      // Only put pedestrians on narrower roads (sidewalks)
+      if (seg.width > 14) {
+        // Try again with different segment
+        continue;
+      }
+
+      const progress = rng();
+      const forward = rng() > 0.5;
       const side = rng() > 0.5 ? 1 : -1;
 
-      let dir: Direction;
-      if (horizontal) {
-        dir = rng() > 0.5 ? 0 : 2;
-      } else {
-        dir = rng() > 0.5 ? 1 : 3;
-      }
+      const [px, pz] = getPointAlongSegment(seg, progress);
+      const [tx, tz] = getTangentAlongSegment(seg, progress);
 
-      let x: number, z: number;
-      if (horizontal) {
-        const roadCenter = ROAD_POSITIONS_Z[roadIndex];
-        const along = ROAD_MIN_X + rng() * (ROAD_MAX_X - ROAD_MIN_X);
-        x = along;
-        z = roadCenter + side * SIDEWALK_OFFSET;
-      } else {
-        const roadCenter = ROAD_POSITIONS_X[roadIndex];
-        const along = ROAD_MIN_Z + rng() * (ROAD_MAX_Z - ROAD_MIN_Z);
-        x = roadCenter + side * SIDEWALK_OFFSET;
-        z = along;
-      }
+      const dir = forward ? 1 : -1;
+      const perpX = -tz;
+      const perpZ = tx;
+      const sidewalkOffset = seg.width / 2 + 1.5; // on sidewalk
+      const x = px + perpX * side * sidewalkOffset;
+      const z = pz + perpZ * side * sidewalkOffset;
 
-      const walkSpeed = 1.5 + rng() * 1.5; // 1.5-3 units/sec
+      const angle = Math.atan2(tx * dir, tz * dir);
+      const walkSpeed = 1.5 + rng() * 1.5;
 
       this.npcs.push({
-        position: [x, 0, z],
+        position: [x, 0.05, z],
         velocity: [0, 0, 0],
-        rotation: directionAngle(dir),
+        rotation: angle,
         speed: walkSpeed,
         targetSpeed: walkSpeed,
-        roadIndex,
-        horizontal,
-        side,
-        direction: dir,
-        stopTimer: rng() < 0.1 ? 2 + rng() * 5 : 0, // some start stopped
-        turnCooldown: rng() * 5,
+        currentSegment: seg,
+        segmentProgress: progress,
+        forward,
+        sidewalkSide: side,
+        stopTimer: rng() < 0.1 ? 2 + rng() * 5 : 0,
+        transitionCooldown: rng() * 5,
         hitTimer: 0,
       });
     }
@@ -428,12 +327,11 @@ export class Pedestrians {
     // Ragdoll from vehicle hit
     if (npc.hitTimer > 0) {
       npc.hitTimer -= dt;
-      npc.velocity[1] -= 15 * dt; // gravity
+      npc.velocity[1] -= 15 * dt;
       npc.position[0] += npc.velocity[0] * dt;
       npc.position[1] += npc.velocity[1] * dt;
       npc.position[2] += npc.velocity[2] * dt;
-      npc.rotation += 8 * dt; // spin
-      // Ground bounce
+      npc.rotation += 8 * dt;
       if (npc.position[1] < 0.05) {
         npc.position[1] = 0.05;
         npc.velocity[1] = Math.abs(npc.velocity[1]) * 0.3;
@@ -443,13 +341,12 @@ export class Pedestrians {
       if (npc.hitTimer <= 0) {
         npc.velocity = [0, 0, 0];
         npc.speed = 0;
-        npc.stopTimer = 3 + Math.random() * 3; // stunned
+        npc.stopTimer = 3 + Math.random() * 3;
       }
       return;
     }
 
-    // Decrease cooldowns
-    if (npc.turnCooldown > 0) npc.turnCooldown -= dt;
+    if (npc.transitionCooldown > 0) npc.transitionCooldown -= dt;
 
     // Handle stopping
     if (npc.stopTimer > 0) {
@@ -459,136 +356,96 @@ export class Pedestrians {
       return;
     }
 
-    // Random chance to stop (idle behavior)
+    // Random chance to stop
     if (Math.random() < 0.001) {
       npc.stopTimer = 2 + Math.random() * 6;
       return;
     }
 
-    // Accelerate to target speed
+    // Accelerate
     if (npc.speed < npc.targetSpeed) {
       npc.speed = Math.min(npc.targetSpeed, npc.speed + 2 * dt);
     }
 
-    // Move
-    const [dx, dz] = directionVector(npc.direction);
-    npc.position[0] += dx * npc.speed * dt;
-    npc.position[2] += dz * npc.speed * dt;
+    // Advance along segment
+    const segLen = getSegmentLength(npc.currentSegment);
+    if (segLen > 0) {
+      const progressDelta = (npc.speed * dt) / segLen;
+      npc.segmentProgress += npc.forward ? progressDelta : -progressDelta;
+    }
 
-    // Keep on ground
-    npc.position[1] = 0.05; // sidewalk height
+    // Segment endpoint transition
+    if (npc.segmentProgress >= 1 || npc.segmentProgress <= 0) {
+      this.handlePedestrianTransition(npc);
+    }
+
+    npc.segmentProgress = Math.max(0.001, Math.min(0.999, npc.segmentProgress));
+
+    // Compute position
+    const [px, pz] = getPointAlongSegment(npc.currentSegment, npc.segmentProgress);
+    const [tx, tz] = getTangentAlongSegment(npc.currentSegment, npc.segmentProgress);
+
+    const perpX = -tz;
+    const perpZ = tx;
+    const sidewalkOffset = npc.currentSegment.width / 2 + 1.5;
+    const targetX = px + perpX * npc.sidewalkSide * sidewalkOffset;
+    const targetZ = pz + perpZ * npc.sidewalkSide * sidewalkOffset;
+
+    npc.position[0] += (targetX - npc.position[0]) * Math.min(1, 4 * dt);
+    npc.position[2] += (targetZ - npc.position[2]) * Math.min(1, 4 * dt);
+    npc.position[1] = 0.05;
 
     // Smooth rotation
-    const targetAngle = directionAngle(npc.direction);
+    const dir = npc.forward ? 1 : -1;
+    const targetAngle = Math.atan2(tx * dir, tz * dir);
     let angleDiff = targetAngle - npc.rotation;
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
     npc.rotation += angleDiff * Math.min(1, 6 * dt);
-
-    // Sidewalk correction: keep on the sidewalk
-    if (npc.horizontal) {
-      const roadCenter = ROAD_POSITIONS_Z[npc.roadIndex];
-      const sidewalkTarget = roadCenter + npc.side * SIDEWALK_OFFSET;
-      const zErr = sidewalkTarget - npc.position[2];
-      npc.position[2] += zErr * Math.min(1, 3 * dt);
-    } else {
-      const roadCenter = ROAD_POSITIONS_X[npc.roadIndex];
-      const sidewalkTarget = roadCenter + npc.side * SIDEWALK_OFFSET;
-      const xErr = sidewalkTarget - npc.position[0];
-      npc.position[0] += xErr * Math.min(1, 3 * dt);
-    }
-
-    // Check for intersections - turn at cross roads
-    if (npc.turnCooldown <= 0) {
-      this.checkPedestrianIntersection(npc);
-    }
-
-    // Wrap around at the edges
-    const margin = 10;
-    if (npc.horizontal) {
-      if (npc.direction === 0 && npc.position[0] > ROAD_MAX_X + margin) {
-        npc.position[0] = ROAD_MIN_X - margin;
-      } else if (npc.direction === 2 && npc.position[0] < ROAD_MIN_X - margin) {
-        npc.position[0] = ROAD_MAX_X + margin;
-      }
-    } else {
-      if (npc.direction === 1 && npc.position[2] > ROAD_MAX_Z + margin) {
-        npc.position[2] = ROAD_MIN_Z - margin;
-      } else if (npc.direction === 3 && npc.position[2] < ROAD_MIN_Z - margin) {
-        npc.position[2] = ROAD_MAX_Z + margin;
-      }
-    }
   }
 
-  private checkPedestrianIntersection(npc: NPCState): void {
-    const crossPositions = npc.horizontal ? ROAD_POSITIONS_X : ROAD_POSITIONS_Z;
+  private handlePedestrianTransition(npc: NPCState): void {
+    const atEnd = npc.segmentProgress >= 1;
+    const nodeId = atEnd
+      ? (npc.forward ? npc.currentSegment.to : npc.currentSegment.from)
+      : (npc.forward ? npc.currentSegment.from : npc.currentSegment.to);
 
-    for (const crossPos of crossPositions) {
-      let distToIntersection: number;
-
-      if (npc.horizontal) {
-        distToIntersection = Math.abs(npc.position[0] - crossPos);
-      } else {
-        distToIntersection = Math.abs(npc.position[2] - crossPos);
-      }
-
-      if (distToIntersection < 1.5) {
-        npc.turnCooldown = 4.0;
-
-        const rng = Math.random();
-
-        if (rng < 0.20) {
-          npc.stopTimer = 2 + Math.random() * 4;
-          return;
-        }
-
-        if (rng < 0.55) {
-          const crossRoadIndex = crossPositions.indexOf(crossPos);
-          if (crossRoadIndex === -1) return;
-
-          const turnRight = Math.random() > 0.5;
-          let newDir: Direction;
-
-          if (npc.horizontal) {
-            if (npc.direction === 0) {
-              newDir = turnRight ? 3 : 1;
-            } else {
-              newDir = turnRight ? 1 : 3;
-            }
-          } else {
-            if (npc.direction === 1) {
-              newDir = turnRight ? 0 : 2;
-            } else {
-              newDir = turnRight ? 2 : 0;
-            }
-          }
-
-          const newSide = Math.random() > 0.5 ? 1 : -1;
-          const newSidewalkPos = crossPos + newSide * SIDEWALK_OFFSET;
-
-          if (npc.horizontal) {
-            npc.position[0] = newSidewalkPos;
-          } else {
-            npc.position[2] = newSidewalkPos;
-          }
-
-          npc.direction = newDir;
-          npc.horizontal = !npc.horizontal;
-          npc.roadIndex = crossRoadIndex;
-          npc.side = newSide;
-
-          npc.targetSpeed = 1.5 + Math.random() * 1.5;
-          npc.speed *= 0.7;
-          return;
-        }
-
-        if (rng < 0.70) {
-          npc.direction = oppositeDir(npc.direction);
-          npc.speed *= 0.5;
-          return;
-        }
-      }
+    const node = getNodeById(nodeId);
+    if (!node) {
+      npc.forward = !npc.forward;
+      npc.segmentProgress = npc.forward ? 0.01 : 0.99;
+      return;
     }
+
+    const connected = getConnectedSegments(nodeId)
+      .filter(s => s.id !== npc.currentSegment.id);
+
+    const rng = Math.random();
+
+    // Chance to stop at intersection
+    if (rng < 0.2) {
+      npc.stopTimer = 2 + Math.random() * 4;
+      npc.forward = !npc.forward;
+      npc.segmentProgress = npc.forward ? 0.01 : 0.99;
+      return;
+    }
+
+    // Chance to reverse
+    if (rng < 0.3 || connected.length === 0) {
+      npc.forward = !npc.forward;
+      npc.segmentProgress = npc.forward ? 0.01 : 0.99;
+      npc.speed *= 0.5;
+      return;
+    }
+
+    // Turn onto connected segment
+    const nextSeg = connected[Math.floor(Math.random() * connected.length)];
+    npc.currentSegment = nextSeg;
+    npc.forward = nextSeg.from === nodeId;
+    npc.segmentProgress = npc.forward ? 0.01 : 0.99;
+    npc.sidewalkSide = Math.random() > 0.5 ? 1 : -1;
+    npc.targetSpeed = 1.5 + Math.random() * 1.5;
+    npc.speed *= 0.7;
   }
 
   getRenderObjects(): RenderObject[] {
