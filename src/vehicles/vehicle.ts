@@ -325,9 +325,14 @@ export class Vehicle {
 
   private updateAircraft(dt: number, input: Input, getGroundHeight: (x: number, z: number) => number) {
     // === CONTROLS ===
-    // W/S: Throttle
-    if (input.isDown('KeyW')) this.throttle = Math.min(1, this.throttle + dt * 0.5);
-    if (input.isDown('KeyS')) this.throttle = Math.max(0, this.throttle - dt * 0.5);
+    // Throttle: W/S on keyboard, buttons on mobile (joystick Y is pitch on mobile)
+    if (input.isMobile) {
+      if (input.touchThrottleUp) this.throttle = Math.min(1, this.throttle + dt * 0.5);
+      if (input.touchThrottleDown) this.throttle = Math.max(0, this.throttle - dt * 0.5);
+    } else {
+      if (input.isDown('KeyW')) this.throttle = Math.min(1, this.throttle + dt * 0.5);
+      if (input.isDown('KeyS')) this.throttle = Math.max(0, this.throttle - dt * 0.5);
+    }
 
     // A/D: Ailerons (roll) - also pitches nose via bank
     const rollRate = 2.0;
@@ -400,10 +405,14 @@ export class Vehicle {
     if (!isOnGround && !this.stalling) {
       this.pitch *= (1 - 0.2 * dt);
     }
-    // Space to pull nose up (elevator up)
-    if (input.isDown('Space')) this.pitch += 1.2 * dt;
-    // Ctrl to push nose down (elevator down)
-    if (input.isDown('ControlLeft') || input.isDown('ControlRight')) this.pitch -= 1.2 * dt;
+    // Pitch: joystick Y on mobile, Space/Ctrl on keyboard
+    if (input.isMobile) {
+      const pitchInput = input.getAxis('moveY');
+      if (Math.abs(pitchInput) > 0.15) this.pitch += pitchInput * 1.2 * dt;
+    } else {
+      if (input.isDown('Space')) this.pitch += 1.2 * dt;
+      if (input.isDown('ControlLeft') || input.isDown('ControlRight')) this.pitch -= 1.2 * dt;
+    }
     this.pitch = Math.max(-0.7, Math.min(0.7, this.pitch));
 
     // === FORWARD DIRECTION ===

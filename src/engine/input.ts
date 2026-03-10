@@ -18,8 +18,8 @@ export class Input {
   touchActionPressed = false; // single-frame press
   touchPunch = false; // left-click equivalent
   touchPunchPressed = false;
-  touchNoseUp = false; // Space (flight)
-  touchNoseDown = false; // Ctrl (flight)
+  touchThrottleUp = false; // flight throttle up
+  touchThrottleDown = false; // flight throttle down
   touchFlapsUp = false; // ArrowUp
   touchFlapsDown = false; // ArrowDown
   touchRudderLeft = false; // ArrowLeft
@@ -211,8 +211,8 @@ export class Input {
         }
         this.touchPunch = pressed;
         break;
-      case 'noseup': this.touchNoseUp = pressed; break;
-      case 'nosedown': this.touchNoseDown = pressed; break;
+      case 'throttleup': this.touchThrottleUp = pressed; break;
+      case 'throttledown': this.touchThrottleDown = pressed; break;
       case 'flapsup': this.touchFlapsUp = pressed; break;
       case 'flapsdown': this.touchFlapsDown = pressed; break;
       case 'rudderleft': this.touchRudderLeft = pressed; break;
@@ -232,8 +232,8 @@ export class Input {
       case 'KeyA': return this.touchMoveX < -0.2;
       case 'KeyD': return this.touchMoveX > 0.2;
       case 'ShiftLeft': return this.touchSprint;
-      case 'Space': return this.touchBrake || this.touchNoseUp;
-      case 'ControlLeft': case 'ControlRight': return this.touchNoseDown;
+      case 'Space': return this.touchBrake;
+      case 'ControlLeft': case 'ControlRight': return false;
       case 'ArrowUp': return this.touchFlapsUp;
       case 'ArrowDown': return this.touchFlapsDown;
       case 'ArrowLeft': return this.touchRudderLeft;

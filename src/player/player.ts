@@ -106,8 +106,8 @@ export class Player {
     let moveX = 0, moveZ = 0;
 
     if (input.isMobile) {
-      // Analog movement from joystick
-      const jx = input.getAxis('moveX');
+      // Analog movement from joystick (negate X for screen-space match)
+      const jx = -input.getAxis('moveX');
       const jy = input.getAxis('moveY');
       moveX = forward[0] * jy + right[0] * jx;
       moveZ = forward[2] * jy + right[2] * jx;
