@@ -222,7 +222,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
   let mountainAmbientBoost = isMountain * 0.12;
   ambient = ambient + vec3<f32>(mountainAmbientBoost * 0.8, mountainAmbientBoost * 0.85, mountainAmbientBoost);
 
-  let heightAO = smoothstep(-12.0, 4.0, input.worldPos.y);
+  let heightAO = smoothstep(-8.0, 2.0, input.worldPos.y);
   // Softer normal AO for mountains so cliffs aren't pitch black
   let normalAO = mix(0.6 + 0.4 * max(N.y, 0.0), 0.75 + 0.25 * max(N.y, 0.0), isMountain);
   let ao = heightAO * normalAO;

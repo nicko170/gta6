@@ -112,10 +112,10 @@ export function applyHeightmap(
     // Tangent vectors
     const tx = 2 * eps, ty1 = hpx - hmx, tz1 = 0;
     const tx2 = 0, ty2 = hpz - hmz, tz2 = 2 * eps;
-    // Normal = cross(tangentX, tangentZ)
-    let nx = ty1 * tz2 - tz1 * ty2;
-    let ny = tz1 * tx2 - tx * tz2;
-    let nz = tx * ty2 - ty1 * tx2;
+    // Normal = cross(tangentZ, tangentX) — up-facing for flat terrain
+    let nx = tz1 * ty2 - ty1 * tz2;
+    let ny = tx * tz2 - tz1 * tx2;
+    let nz = ty1 * tx2 - tx * ty2;
     const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
     v[i + 3] = nx / len;
     v[i + 4] = ny / len;
