@@ -407,7 +407,7 @@ export class Vehicle {
     }
     // Pitch: joystick Y on mobile, Space/Ctrl on keyboard
     if (input.isMobile) {
-      const pitchInput = input.getAxis('moveY');
+      const pitchInput = -input.getAxis('moveY');
       if (Math.abs(pitchInput) > 0.15) this.pitch += pitchInput * 1.2 * dt;
     } else {
       if (input.isDown('Space')) this.pitch += 1.2 * dt;
