@@ -272,6 +272,14 @@ export class Vehicle {
     if (input.isDown('KeyS')) accel = -this.config.braking;
     if (input.isDown('ShiftLeft')) accel *= 1.5; // Boost
 
+    // Analog throttle on mobile
+    if (input.isMobile) {
+      const ay = input.getAxis('moveY');
+      if (ay > 0.1) accel = this.config.acceleration * ay;
+      else if (ay < -0.1) accel = this.config.braking * ay;
+      if (input.touchSprint) accel *= 1.5;
+    }
+
     this.speed += accel * dt;
     this.speed *= 0.98; // drag
 
@@ -282,17 +290,28 @@ export class Vehicle {
     // Steering
     if (Math.abs(this.speed) > 0.5) {
       const turnFactor = Math.min(1, Math.abs(this.speed) / 10);
-      if (input.isDown('KeyA')) this.body.rotation += this.config.turnSpeed * turnFactor * dt * Math.sign(this.speed);
-      if (input.isDown('KeyD')) this.body.rotation -= this.config.turnSpeed * turnFactor * dt * Math.sign(this.speed);
+      // Analog steering on mobile
+      if (input.isMobile) {
+        const steer = -input.getAxis('steerX');
+        this.body.rotation += steer * this.config.turnSpeed * turnFactor * dt * Math.sign(this.speed);
+      } else {
+        if (input.isDown('KeyA')) this.body.rotation += this.config.turnSpeed * turnFactor * dt * Math.sign(this.speed);
+        if (input.isDown('KeyD')) this.body.rotation -= this.config.turnSpeed * turnFactor * dt * Math.sign(this.speed);
+      }
     }
 
     // Handbrake
-    if (input.isDown('Space')) {
+    if (input.isDown('Space') || input.touchBrake) {
       this.speed *= 0.95;
       // Drift effect
       if (Math.abs(this.speed) > 5) {
-        if (input.isDown('KeyA')) this.body.rotation += this.config.turnSpeed * 1.5 * dt;
-        if (input.isDown('KeyD')) this.body.rotation -= this.config.turnSpeed * 1.5 * dt;
+        if (input.isMobile) {
+          const steer = -input.getAxis('steerX');
+          this.body.rotation += steer * this.config.turnSpeed * 1.5 * dt;
+        } else {
+          if (input.isDown('KeyA')) this.body.rotation += this.config.turnSpeed * 1.5 * dt;
+          if (input.isDown('KeyD')) this.body.rotation -= this.config.turnSpeed * 1.5 * dt;
+        }
       }
     }
 
@@ -312,9 +331,15 @@ export class Vehicle {
 
     // A/D: Ailerons (roll) - also pitches nose via bank
     const rollRate = 2.0;
-    if (input.isDown('KeyA')) this.roll -= rollRate * dt;
-    else if (input.isDown('KeyD')) this.roll += rollRate * dt;
-    else this.roll *= (1 - 1.0 * dt); // slow auto-level
+    if (input.isMobile) {
+      const steer = input.getAxis('steerX');
+      if (Math.abs(steer) > 0.15) this.roll += steer * rollRate * dt;
+      else this.roll *= (1 - 1.0 * dt);
+    } else {
+      if (input.isDown('KeyA')) this.roll -= rollRate * dt;
+      else if (input.isDown('KeyD')) this.roll += rollRate * dt;
+      else this.roll *= (1 - 1.0 * dt); // slow auto-level
+    }
     this.roll = Math.max(-1.2, Math.min(1.2, this.roll));
 
     // ArrowUp/ArrowDown: Flaps (0 to 1)
@@ -447,6 +472,12 @@ export class Vehicle {
     if (input.isDown('KeyW')) accel = this.config.acceleration;
     if (input.isDown('KeyS')) accel = -this.config.braking * 0.5;
 
+    if (input.isMobile) {
+      const ay = input.getAxis('moveY');
+      if (ay > 0.1) accel = this.config.acceleration * ay;
+      else if (ay < -0.1) accel = this.config.braking * 0.5 * ay;
+    }
+
     this.speed += accel * dt;
     this.speed *= 0.97; // Water drag
     this.speed = Math.max(-this.config.maxSpeed * 0.2, Math.min(this.config.maxSpeed, this.speed));
@@ -454,8 +485,13 @@ export class Vehicle {
     // Steering
     if (Math.abs(this.speed) > 0.5) {
       const turnFactor = Math.min(1, Math.abs(this.speed) / 8);
-      if (input.isDown('KeyA')) this.body.rotation += this.config.turnSpeed * turnFactor * dt * Math.sign(this.speed);
-      if (input.isDown('KeyD')) this.body.rotation -= this.config.turnSpeed * turnFactor * dt * Math.sign(this.speed);
+      if (input.isMobile) {
+        const steer = -input.getAxis('steerX');
+        this.body.rotation += steer * this.config.turnSpeed * turnFactor * dt * Math.sign(this.speed);
+      } else {
+        if (input.isDown('KeyA')) this.body.rotation += this.config.turnSpeed * turnFactor * dt * Math.sign(this.speed);
+        if (input.isDown('KeyD')) this.body.rotation -= this.config.turnSpeed * turnFactor * dt * Math.sign(this.speed);
+      }
     }
 
     // Movement

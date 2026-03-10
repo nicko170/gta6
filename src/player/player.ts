@@ -104,15 +104,22 @@ export class Player {
     const right: Vec3 = [Math.cos(this.yaw), 0, -Math.sin(this.yaw)];
 
     let moveX = 0, moveZ = 0;
-    if (input.isDown('KeyW')) { moveX += forward[0]; moveZ += forward[2]; }
-    if (input.isDown('KeyS')) { moveX -= forward[0]; moveZ -= forward[2]; }
-    if (input.isDown('KeyA')) { moveX -= right[0]; moveZ -= right[2]; }
-    if (input.isDown('KeyD')) { moveX += right[0]; moveZ += right[2]; }
 
-    const len = Math.sqrt(moveX * moveX + moveZ * moveZ);
-    if (len > 0) {
-      moveX /= len;
-      moveZ /= len;
+    if (input.isMobile) {
+      // Analog movement from joystick
+      const jx = input.getAxis('moveX');
+      const jy = input.getAxis('moveY');
+      moveX = forward[0] * jy + right[0] * jx;
+      moveZ = forward[2] * jy + right[2] * jx;
+      const len = Math.sqrt(moveX * moveX + moveZ * moveZ);
+      if (len > 1) { moveX /= len; moveZ /= len; }
+    } else {
+      if (input.isDown('KeyW')) { moveX += forward[0]; moveZ += forward[2]; }
+      if (input.isDown('KeyS')) { moveX -= forward[0]; moveZ -= forward[2]; }
+      if (input.isDown('KeyA')) { moveX -= right[0]; moveZ -= right[2]; }
+      if (input.isDown('KeyD')) { moveX += right[0]; moveZ += right[2]; }
+      const len = Math.sqrt(moveX * moveX + moveZ * moveZ);
+      if (len > 0) { moveX /= len; moveZ /= len; }
     }
 
     this.body.velocity[0] = moveX * speed;
@@ -265,12 +272,12 @@ export class Player {
     ];
   }
 
-  getNearestVehiclePrompt(vehicles: Vehicle[]): string | null {
-    if (this.inVehicle) return 'Press F to exit vehicle';
+  getNearestVehiclePrompt(vehicles: Vehicle[], isMobile = false): string | null {
+    if (this.inVehicle) return isMobile ? null : 'Press F to exit vehicle';
     const nearest = this.findNearestVehicle(vehicles);
     if (nearest) {
       const typeName = nearest.type.charAt(0).toUpperCase() + nearest.type.slice(1);
-      return `Press F to enter ${typeName}`;
+      return isMobile ? null : `Press F to enter ${typeName}`;
     }
     return null;
   }

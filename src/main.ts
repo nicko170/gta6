@@ -44,6 +44,22 @@ async function main() {
   // Init input
   const input = new Input(canvas);
 
+  // Wire up mobile touch buttons
+  (window as any)._touchBtn = (name: string, pressed: boolean) => {
+    input.setTouchButton(name, pressed);
+  };
+
+  // Request fullscreen on first touch (mobile)
+  if (input.isMobile) {
+    const requestFS = () => {
+      const d = document.documentElement as any;
+      if (d.requestFullscreen) d.requestFullscreen().catch(() => {});
+      else if (d.webkitRequestFullscreen) d.webkitRequestFullscreen();
+      document.removeEventListener('touchstart', requestFS);
+    };
+    document.addEventListener('touchstart', requestFS, { once: true });
+  }
+
   // Generate city
   const city = new City();
   city.generate(renderer);
@@ -313,7 +329,7 @@ async function main() {
     }
 
     // Vehicle prompt
-    const prompt = player.getNearestVehiclePrompt(allVehicles);
+    const prompt = player.getNearestVehiclePrompt(allVehicles, input.isMobile);
     if (prompt) {
       vehiclePromptEl.style.display = 'block';
       vehiclePromptEl.innerText = prompt;
@@ -321,8 +337,36 @@ async function main() {
       vehiclePromptEl.style.display = 'none';
     }
 
+    // Update mobile touch button visibility
+    if (input.isMobile) {
+      updateMobileButtons(player, isInAircraft || false);
+    }
+
     input.endFrame();
     requestAnimationFrame(gameLoop);
+  }
+
+  // Mobile button visibility based on game state
+  const touchOnFoot = document.getElementById('touch-onfoot');
+  const touchVehicle = document.getElementById('touch-vehicle');
+  const touchFlight = document.getElementById('touch-flight');
+
+  function updateMobileButtons(p: Player, isFlying: boolean) {
+    if (!touchOnFoot) return;
+    if (p.inVehicle) {
+      touchOnFoot!.style.display = 'none';
+      if (isFlying) {
+        touchVehicle!.style.display = 'none';
+        touchFlight!.style.display = 'flex';
+      } else {
+        touchVehicle!.style.display = 'flex';
+        touchFlight!.style.display = 'none';
+      }
+    } else {
+      touchOnFoot!.style.display = 'flex';
+      touchVehicle!.style.display = 'none';
+      touchFlight!.style.display = 'none';
+    }
   }
 
   requestAnimationFrame(gameLoop);
