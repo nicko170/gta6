@@ -4,7 +4,7 @@ import { Renderer, Mesh, RenderObject } from '../engine/renderer';
 import { Input } from '../engine/input';
 import { Vehicle } from '../vehicles/vehicle';
 import { createBox, createTaperedBox, createCylinder, createSphere, mergeMeshes } from '../engine/meshgen';
-import { getTerrainHeight, isWater } from '../world/terrain';
+import { getTerrainHeight, isWater, WATER_LEVEL } from '../world/terrain';
 
 export class Player {
   body: PhysicsBody;
@@ -99,7 +99,9 @@ export class Player {
   }
 
   private updateOnFoot(dt: number, input: Input, getGroundHeight: (x: number, z: number) => number, checkBuilding?: (x: number, z: number, radius: number) => Vec3 | null) {
-    const speed = input.isDown('ShiftLeft') ? this.sprintSpeed : this.moveSpeed;
+    const inWater = isWater(this.body.position[0], this.body.position[2]);
+    const baseSpeed = input.isDown('ShiftLeft') ? this.sprintSpeed : this.moveSpeed;
+    const speed = inWater ? baseSpeed * 0.45 : baseSpeed;
     const forward: Vec3 = [Math.sin(this.yaw), 0, Math.cos(this.yaw)];
     const right: Vec3 = [Math.cos(this.yaw), 0, -Math.sin(this.yaw)];
 
@@ -126,14 +128,21 @@ export class Player {
     this.body.velocity[0] = moveX * speed;
     this.body.velocity[2] = moveZ * speed;
 
-    // Jump
-    if (input.wasPressed('Space') && this.body.grounded) {
+    // Jump (not in water)
+    if (!inWater && input.wasPressed('Space') && this.body.grounded) {
       this.body.velocity[1] = 8;
       this.body.grounded = false;
     }
 
     this.body.rotation = this.yaw;
     updatePhysics(this.body, dt, getGroundHeight);
+
+    // Swimming: keep player on water surface
+    if (inWater && this.body.position[1] < WATER_LEVEL) {
+      this.body.position[1] = WATER_LEVEL;
+      this.body.velocity[1] = 0;
+      this.body.grounded = true;
+    }
 
     // Building collision
     if (checkBuilding) {

@@ -75,7 +75,7 @@ export class City {
     const ground = createPlane(this.WORLD_SIZE * 2, this.WORLD_SIZE * 2, 0.25, 0.35, 0.2, 200, 200);
     applyHeightmap(ground, getTerrainHeight, (x, z, h, slopeX, slopeZ) => {
       const slope = Math.sqrt(slopeX * slopeX + slopeZ * slopeZ);
-      if (isWater(x, z)) return [0.12, 0.22, 0.15];
+      if (isWater(x, z)) return [0.08, 0.18, 0.38];
       if (h > 95 && slope < 0.6) {
         const snowT = Math.min(1, (h - 95) / 25);
         return [0.85 + snowT * 0.07, 0.86 + snowT * 0.07, 0.90 + snowT * 0.05];
@@ -940,7 +940,10 @@ export class City {
     if (this.isOnMountainAirport(x, z)) return MT_AIRPORT_Y + 0.03;
     const mtRoad = getMountainRoadHeight(x, z);
     if (mtRoad > -900) return mtRoad;
-    return getTerrainHeight(x, z);
+    const h = getTerrainHeight(x, z);
+    // Water surface: player swims on top instead of walking on riverbed
+    if (isWater(x, z) && h < WATER_LEVEL) return WATER_LEVEL;
+    return h;
   }
 
   checkBuildingCollision(x: number, z: number, radius: number): Vec3 | null {
