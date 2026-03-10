@@ -2,6 +2,8 @@
 
 > Because Rockstar has been "working on it" since the Obama administration.
 
+## [Play it now](https://nicko170.github.io/gta6/) — no download, no launcher, no Shark Cards.
+
 ## What is this?
 
 We got tired of waiting. Seriously. GTA V came out in **2013**. That's not a release date, that's a historical event. Kids born when GTA V launched are now old enough to be disappointed by the lack of GTA VI themselves.
