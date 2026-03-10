@@ -5,6 +5,7 @@ export class Input {
   mouseY = 0;
   mouseDX = 0;
   mouseDY = 0;
+  mouseClicked = false;
   locked = false;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -22,6 +23,11 @@ export class Input {
       }
     });
 
+    canvas.addEventListener('mousedown', () => {
+      if (this.locked) {
+        this.mouseClicked = true;
+      }
+    });
     canvas.addEventListener('click', () => {
       if (!this.locked) {
         canvas.requestPointerLock();
@@ -38,6 +44,7 @@ export class Input {
   endFrame() {
     this.mouseDX = 0;
     this.mouseDY = 0;
+    this.mouseClicked = false;
     this.keysPressed.clear();
   }
 }

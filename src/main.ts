@@ -154,6 +154,36 @@ async function main() {
       }
     }
 
+    // Melee punch (left click when on foot)
+    if (!player.inVehicle && input.mouseClicked) {
+      const punchRange = 2.5;
+      const fwd: [number, number, number] = [Math.sin(player.yaw), 0, Math.cos(player.yaw)];
+      let bestNpc = null;
+      let bestDist = punchRange;
+      for (const npc of pedestrians.npcs) {
+        if (npc.hitTimer > 0) continue;
+        const dx = npc.position[0] - player.body.position[0];
+        const dz = npc.position[2] - player.body.position[2];
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist > punchRange) continue;
+        // Check if in front of player (dot product with facing direction)
+        const dot = (dx * fwd[0] + dz * fwd[2]) / (dist || 1);
+        if (dot > 0.3 && dist < bestDist) {
+          bestDist = dist;
+          bestNpc = npc;
+        }
+      }
+      if (bestNpc) {
+        const dx = bestNpc.position[0] - player.body.position[0];
+        const dz = bestNpc.position[2] - player.body.position[2];
+        const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+        bestNpc.velocity[0] = (dx / dist) * 6 + fwd[0] * 4;
+        bestNpc.velocity[1] = 3;
+        bestNpc.velocity[2] = (dz / dist) * 6 + fwd[2] * 4;
+        bestNpc.hitTimer = 1.5 + Math.random() * 0.5;
+      }
+    }
+
     // Vehicle vs pedestrian collision
     for (const npc of pedestrians.npcs) {
       if (npc.hitTimer > 0) continue;
