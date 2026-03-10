@@ -106,11 +106,12 @@ export class Player {
     let moveX = 0, moveZ = 0;
 
     if (input.isMobile) {
-      // Analog movement from joystick (negate X for screen-space match)
-      const jx = -input.getAxis('moveX');
+      // Joystick X = turn camera, Y = move forward/back
+      const jx = input.getAxis('moveX');
       const jy = input.getAxis('moveY');
-      moveX = forward[0] * jy + right[0] * jx;
-      moveZ = forward[2] * jy + right[2] * jx;
+      this.yaw -= jx * 2.5 * dt;
+      moveX = forward[0] * jy;
+      moveZ = forward[2] * jy;
       const len = Math.sqrt(moveX * moveX + moveZ * moveZ);
       if (len > 1) { moveX /= len; moveZ /= len; }
     } else {

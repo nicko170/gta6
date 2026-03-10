@@ -281,7 +281,7 @@ export class City {
         isOnAnyRoad(bx, bz - d / 2) || isOnAnyRoad(bx, bz + d / 2)) return;
 
     // Glass/steel colors
-    const shade = 0.35 + rng() * 0.35;
+    const shade = 0.45 + rng() * 0.35;
     const tint = rng();
     let cr: number, cg: number, cb: number;
     if (tint < 0.3) {
@@ -292,7 +292,7 @@ export class City {
       cr = shade * 0.85; cg = shade * 0.85; cb = shade * 0.9;
     } else if (tint < 0.75) {
       // Dark glass
-      cr = shade * 0.45; cg = shade * 0.5; cb = shade * 0.55;
+      cr = shade * 0.65; cg = shade * 0.7; cb = shade * 0.78;
     } else {
       // Warm concrete
       cr = shade; cg = shade * 0.92; cb = shade * 0.85;
@@ -414,12 +414,6 @@ export class City {
     const mesh = renderer.createMesh(merged.vertices, merged.indices, 'object');
     this.buildingMeshes.push({ mesh, modelMatrix: mat4.translation(bx, houseH / 2, bz) });
 
-    // Yard (green ground around house)
-    const yardSize = 18;
-    const yard = createPlane(yardSize, yardSize, 0.22, 0.45, 0.2);
-    const yardMesh = renderer.createMesh(yard.vertices, yard.indices, 'terrain');
-    this.airportMeshes.push({ mesh: yardMesh, modelMatrix: mat4.translation(bx, 0.005, bz) });
-
     // Yard tree (50% chance)
     if (rng() > 0.5) {
       const treeVariants = this.parkTreeMeshes(renderer);
@@ -438,20 +432,6 @@ export class City {
       }
     }
 
-    // Fence (30% chance)
-    if (rng() > 0.7) {
-      const fenceH = 0.8;
-      const fenceColor: [number, number, number] = [0.6, 0.55, 0.45];
-      // Front and back fences
-      for (const side of [-1, 1]) {
-        const fence = createBox(yardSize - 2, fenceH, 0.15, ...fenceColor);
-        const fMesh = renderer.createMesh(fence.vertices, fence.indices, 'object');
-        this.airportMeshes.push({
-          mesh: fMesh,
-          modelMatrix: mat4.translation(bx, fenceH / 2, bz + side * (yardSize / 2 - 1))
-        });
-      }
-    }
   }
 
   private generateWaterfrontBuilding(renderer: Renderer, bx: number, bz: number, rng: () => number) {
