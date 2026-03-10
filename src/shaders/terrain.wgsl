@@ -1,0 +1,214 @@
+struct Uniforms {
+  viewProjection: mat4x4<f32>,
+  model: mat4x4<f32>,
+  cameraPos: vec3<f32>,
+  time: f32,
+  sunDirection: vec3<f32>,
+  fogDensity: f32,
+  fogColor: vec3<f32>,
+  _pad: f32,
+};
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+
+struct VertexInput {
+  @location(0) position: vec3<f32>,
+  @location(1) normal: vec3<f32>,
+  @location(2) uv: vec2<f32>,
+  @location(3) color: vec4<f32>,
+};
+
+struct VertexOutput {
+  @builtin(position) position: vec4<f32>,
+  @location(0) worldPos: vec3<f32>,
+  @location(1) normal: vec3<f32>,
+  @location(2) uv: vec2<f32>,
+  @location(3) color: vec4<f32>,
+};
+
+@vertex
+fn vs_main(input: VertexInput) -> VertexOutput {
+  var output: VertexOutput;
+  let worldPos = (uniforms.model * vec4<f32>(input.position, 1.0)).xyz;
+  output.position = uniforms.viewProjection * vec4<f32>(worldPos, 1.0);
+  output.worldPos = worldPos;
+  output.normal = normalize((uniforms.model * vec4<f32>(input.normal, 0.0)).xyz);
+  output.uv = input.uv;
+  output.color = input.color;
+  return output;
+}
+
+// ---- Procedural noise helpers ----
+
+fn hash2(p: vec2<f32>) -> f32 {
+  let h = dot(p, vec2<f32>(127.1, 311.7));
+  return fract(sin(h) * 43758.5453123);
+}
+
+fn hash2v(p: vec2<f32>) -> vec2<f32> {
+  return vec2<f32>(
+    fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453),
+    fract(sin(dot(p, vec2<f32>(269.5, 183.3))) * 43758.5453)
+  );
+}
+
+fn valueNoise(p: vec2<f32>) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let u = f * f * (3.0 - 2.0 * f);
+  let a = hash2(i);
+  let b = hash2(i + vec2<f32>(1.0, 0.0));
+  let c = hash2(i + vec2<f32>(0.0, 1.0));
+  let d = hash2(i + vec2<f32>(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+fn fbm(p: vec2<f32>, octaves: i32) -> f32 {
+  var val = 0.0;
+  var amp = 0.5;
+  var freq = 1.0;
+  var pos = p;
+  for (var i = 0; i < octaves; i++) {
+    val += valueNoise(pos * freq) * amp;
+    freq *= 2.17;
+    amp *= 0.48;
+    // Rotate to break axis alignment
+    pos = vec2<f32>(pos.x * 0.866 - pos.y * 0.5, pos.x * 0.5 + pos.y * 0.866);
+  }
+  return val;
+}
+
+fn voronoiNoise(p: vec2<f32>) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  var minDist = 1.0;
+  for (var y = -1; y <= 1; y++) {
+    for (var x = -1; x <= 1; x++) {
+      let neighbor = vec2<f32>(f32(x), f32(y));
+      let point = hash2v(i + neighbor);
+      let diff = neighbor + point - f;
+      let dist = dot(diff, diff);
+      minDist = min(minDist, dist);
+    }
+  }
+  return sqrt(minDist);
+}
+
+@fragment
+fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+  let N = normalize(input.normal);
+  let L = normalize(uniforms.sunDirection);
+  let V = normalize(uniforms.cameraPos - input.worldPos);
+
+  // --- Determine surface type from vertex color ---
+  // Roads tend to be grey (r ~ g ~ b), grass is greenish (g > r, g > b)
+  let baseColor = input.color.rgb;
+  let luminance = dot(baseColor, vec3<f32>(0.299, 0.587, 0.114));
+  let saturation = (max(max(baseColor.r, baseColor.g), baseColor.b) - min(min(baseColor.r, baseColor.g), baseColor.b));
+  let isGrassy = smoothstep(0.03, 0.12, saturation) * smoothstep(0.0, 0.1, baseColor.g - baseColor.r);
+  let isRoad = (1.0 - isGrassy) * smoothstep(0.15, 0.45, luminance) * (1.0 - smoothstep(0.0, 0.15, saturation));
+
+  // --- World-space procedural coordinates ---
+  let worldUV = input.worldPos.xz;
+
+  // --- Grass color variation ---
+  let grassNoise1 = fbm(worldUV * 0.05, 4);
+  let grassNoise2 = fbm(worldUV * 0.15 + vec2<f32>(50.0, 80.0), 3);
+  let grassDetail = fbm(worldUV * 0.8, 3);
+
+  // Warm / cool grass patches
+  let grassWarm = vec3<f32>(0.28, 0.42, 0.08);
+  let grassCool = vec3<f32>(0.15, 0.35, 0.12);
+  let grassDry  = vec3<f32>(0.38, 0.38, 0.12);
+  var grassColor = mix(grassCool, grassWarm, grassNoise1);
+  grassColor = mix(grassColor, grassDry, grassNoise2 * 0.35);
+  // Fine detail variation
+  grassColor *= 0.85 + 0.3 * grassDetail;
+
+  // --- Road surface variation ---
+  let roadNoise = fbm(worldUV * 0.3, 3);
+  let roadDetail = fbm(worldUV * 2.0, 2);
+  let roadPatches = voronoiNoise(worldUV * 0.08);
+  var roadColor = baseColor;
+  // Subtle asphalt variation -- lighter/darker patches
+  roadColor *= 0.88 + 0.24 * roadNoise;
+  // Fine roughness grain
+  roadColor *= 0.94 + 0.12 * roadDetail;
+  // Repair patches (slightly different shade)
+  let patchFactor = smoothstep(0.3, 0.35, roadPatches) * smoothstep(0.55, 0.5, roadPatches);
+  roadColor = mix(roadColor, roadColor * 1.12, patchFactor * 0.5);
+
+  // --- Road markings ---
+  let roadLine = smoothstep(0.48, 0.49, input.uv.x) - smoothstep(0.51, 0.52, input.uv.x);
+  roadColor = mix(roadColor, vec3<f32>(0.9, 0.88, 0.7), roadLine * 0.8);
+
+  // --- Blend surface types ---
+  var surfaceColor = baseColor;
+  // Apply grass variation where grassy
+  surfaceColor = mix(surfaceColor, grassColor, isGrassy);
+  // Apply road variation where road-like
+  surfaceColor = mix(surfaceColor, roadColor, isRoad);
+
+  // For generic surfaces (not grass, not road), add subtle noise
+  let genericNoise = fbm(worldUV * 0.2, 3);
+  let genericMask = (1.0 - isGrassy) * (1.0 - isRoad);
+  surfaceColor = mix(surfaceColor, surfaceColor * (0.85 + 0.3 * genericNoise), genericMask);
+
+  // --- Lighting ---
+  let NdotL = max(dot(N, L), 0.0);
+
+  // Wrapped diffuse for softer shadows
+  let wrapFactor = 0.3;
+  let wrappedNdotL = max((dot(N, L) + wrapFactor) / (1.0 + wrapFactor), 0.0);
+
+  // Sun color with warm tint
+  let sunColor = vec3<f32>(1.05, 0.95, 0.82);
+  let diffuse = sunColor * wrappedNdotL;
+
+  // Hemispherical ambient -- sky from above, warm ground bounce from below
+  let skyAmbient = vec3<f32>(0.14, 0.20, 0.32);
+  let groundAmbient = vec3<f32>(0.12, 0.10, 0.06);
+  let ambientBlend = N.y * 0.5 + 0.5;
+  let ambient = mix(groundAmbient, skyAmbient, ambientBlend);
+
+  // Subtle ground-level AO: darken where the surface normal points down or surface is low
+  let heightAO = smoothstep(-2.0, 8.0, input.worldPos.y);
+  let normalAO = 0.6 + 0.4 * max(N.y, 0.0);
+  let ao = heightAO * normalAO;
+
+  // Shadow softening -- slight fill light from opposite direction
+  let fillDir = normalize(vec3<f32>(-L.x, 0.2, -L.z));
+  let fillLight = max(dot(N, fillDir), 0.0) * 0.08;
+  let fillColor = vec3<f32>(0.5, 0.6, 0.8);
+
+  let lighting = (ambient * ao + diffuse * 0.82 + fillColor * fillLight);
+
+  // Subtle specular for wet/road surfaces
+  let H = normalize(L + V);
+  let NdotH = max(dot(N, H), 0.0);
+  let roadSpec = pow(NdotH, 64.0) * 0.15 * isRoad;
+  let grassSpec = pow(NdotH, 8.0) * 0.04 * isGrassy;
+
+  var finalColor = surfaceColor * lighting + sunColor * (roadSpec + grassSpec);
+
+  // --- Fog with atmospheric perspective ---
+  let dist = distance(input.worldPos, uniforms.cameraPos);
+  let baseFog = 1.0 - exp(-dist * uniforms.fogDensity * 0.001);
+  // Height-based fog (thicker near ground)
+  let heightFog = exp(-max(input.worldPos.y - uniforms.cameraPos.y, 0.0) * 0.005);
+  let fogFactor = clamp(baseFog * (0.5 + 0.5 * heightFog), 0.0, 1.0);
+
+  // Fog color tinted slightly by sun direction (warm toward sun, cool away)
+  let viewDir = normalize(input.worldPos - uniforms.cameraPos);
+  let sunViewDot = max(dot(viewDir, L), 0.0);
+  let fogTint = mix(uniforms.fogColor, uniforms.fogColor * vec3<f32>(1.15, 1.05, 0.85), pow(sunViewDot, 3.0) * 0.4);
+
+  finalColor = mix(finalColor, fogTint, fogFactor);
+
+  // Slight tone-mapping to keep highlights in range
+  finalColor = finalColor / (finalColor + vec3<f32>(1.0));
+  // Gamma approximation for richer colors
+  finalColor = pow(finalColor, vec3<f32>(0.92));
+
+  return vec4<f32>(finalColor, 1.0);
+}
